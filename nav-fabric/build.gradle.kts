@@ -16,6 +16,11 @@ dependencies {
 
   implementation(project(":nav-core"))
   include(project(":nav-core"))
+
+  testImplementation(platform("org.junit:junit-bom:5.13.4"))
+  testImplementation("org.junit.jupiter:junit-jupiter")
+  testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+  testImplementation(testFixtures(project(":nav-core")))
 }
 
 tasks.processResources {
@@ -24,4 +29,8 @@ tasks.processResources {
   filesMatching("fabric.mod.json") {
     expand("version" to version)
   }
+}
+
+tasks.test {
+  useJUnitPlatform()
 }
