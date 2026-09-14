@@ -18,7 +18,7 @@ import net.minecraft.world.level.Level;
  * served ({@link #cache} returns null).
  */
 // THREADING: start(), stop(), tick(), onDataPackReload() — SERVER THREAD ONLY (asserted).
-// current(), cache(), executor() — ANY THREAD, non-blocking.
+// current(), cache(), existingCache(), executor() — ANY THREAD, non-blocking.
 public final class NavServices {
 
   private record Bounds(int minY, int maxY) {
@@ -116,6 +116,17 @@ public final class NavServices {
     }
     return caches.computeIfAbsent(dimension,
         k -> new SnapshotCache(k, b.minY(), b.maxY(), config, snapshotter, executor));
+  }
+
+  /**
+   * The snapshot cache for a level if it has already been created (never creates one). ANY THREAD;
+   * non-blocking. Used by invalidation hooks, where a missing cache means nothing is cached.
+   *
+   * @param dimension level key
+   * @return the cache or null
+   */
+  public SnapshotCache existingCache(ResourceKey<Level> dimension) {
+    return caches.get(dimension);
   }
 
   /**

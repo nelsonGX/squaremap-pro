@@ -16,6 +16,9 @@ dependencies {
 
   implementation(project(":nav-core"))
   include(project(":nav-core"))
+  // nav-core's RegionGraphStore needs the SQLite JDBC driver at runtime; nest it in the mod jar.
+  implementation("org.xerial:sqlite-jdbc:3.53.4.0")
+  include("org.xerial:sqlite-jdbc:3.53.4.0")
 
   testImplementation(platform("org.junit:junit-bom:5.13.4"))
   testImplementation("org.junit.jupiter:junit-jupiter")

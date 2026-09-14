@@ -84,6 +84,17 @@ public final class SnapshotWorldView implements WorldView {
     return null;
   }
 
+  /**
+   * Whether the view holds a snapshot for a chunk, i.e. the chunk was loaded when captured.
+   *
+   * @param chunkX chunk x
+   * @param chunkZ chunk z
+   * @return whether present
+   */
+  public boolean hasChunk(int chunkX, int chunkZ) {
+    return chunk(chunkX, chunkZ) != null;
+  }
+
   /** @return number of chunks available in this view */
   public int chunkCount() {
     return size;

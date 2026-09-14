@@ -47,6 +47,16 @@ class SnapshotWorldViewTest {
   }
 
   @Test
+  void hasChunkReportsCapturedChunksOnly() {
+    SnapshotWorldView v = new SnapshotWorldView(MIN_Y, MAX_Y,
+        List.of(flat(0, 0).build(), flat(-1, 3).build()));
+    assertTrue(v.hasChunk(0, 0));
+    assertTrue(v.hasChunk(-1, 3));
+    assertFalse(v.hasChunk(1, 0));
+    assertFalse(v.hasChunk(0, -1));
+  }
+
+  @Test
   void verticalBounds() {
     // Standable at maxY-1 with passable only at maxY: head block would be above maxY.
     ChunkSnapshot.Builder b = ChunkSnapshot.builder(0, 0, MIN_Y, HEIGHT);

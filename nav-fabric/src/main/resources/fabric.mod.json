@@ -11,6 +11,9 @@
       "dev.nelsongx.nav.fabric.NavFabricMod"
     ]
   },
+  "mixins": [
+    "squaremap-pro.mixins.json"
+  ],
   "depends": {
     "fabricloader": ">=0.18.4",
     "minecraft": "~1.21.11",

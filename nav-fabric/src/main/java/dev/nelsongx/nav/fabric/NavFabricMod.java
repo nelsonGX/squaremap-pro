@@ -1,6 +1,9 @@
 package dev.nelsongx.nav.fabric;
 
 import dev.nelsongx.nav.fabric.command.NavCommand;
+import dev.nelsongx.nav.fabric.graph.BlockChangeTracker;
+import dev.nelsongx.nav.fabric.graph.NavBuildCommand;
+import dev.nelsongx.nav.fabric.graph.NavGraphServices;
 import dev.nelsongx.nav.fabric.route.RouteService;
 import dev.nelsongx.nav.fabric.squaremap.NavMapLayer;
 import dev.nelsongx.nav.fabric.squaremap.NavMapLayers;
@@ -8,6 +11,7 @@ import dev.nelsongx.nav.fabric.world.NavServices;
 import dev.nelsongx.nav.fabric.world.SnapshotCache;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.server.MinecraftServer;
@@ -23,7 +27,8 @@ import org.slf4j.LoggerFactory;
 // END_DATA_PACK_RELOAD) are invoked by Fabric on the server thread; SERVER_STARTING only stores the
 // server reference. CommandRegistrationCallback fires wherever `new Commands(...)` runs
 // (ReloadableServerResources, possibly a reload executor thread) and only adds nodes to the dispatcher
-// it is given — no server/level/player access. `server` is volatile and read from any thread;
+// it is given — no server/level/player access. ServerChunkEvents CHUNK_LOAD/CHUNK_UNLOAD fire on the
+// server thread (BlockChangeTracker re-checks). `server` is volatile and read from any thread;
 // routeService()/mapLayer() are set once during init and read from any thread.
 public final class NavFabricMod implements ModInitializer {
   public static final String MOD_ID = "squaremap-pro";
@@ -45,19 +50,27 @@ public final class NavFabricMod implements ModInitializer {
 
   @Override
   public void onInitialize() {
-    // Region graphs are supplied by task 9; until then routes use flat search.
-    RouteService routes = new RouteService(NavServices::current, dimension -> null);
+    // Region graph per dimension (null when services are not running); RouteService only uses it when it
+    // covers the whole query box (GraphUsePolicy).
+    RouteService routes = new RouteService(NavServices::current, dimension -> {
+      NavGraphServices graphs = NavGraphServices.current();
+      return graphs == null ? null : graphs.graph(dimension);
+    });
     NavMapLayer layer = NavMapLayers.create(() -> server);
     routeService = routes;
     mapLayer = layer;
     NavCommand navCommand = new NavCommand(routes, layer);
+    NavBuildCommand navBuildCommand = new NavBuildCommand();
 
-    CommandRegistrationCallback.EVENT.register(
-        (dispatcher, registryAccess, environment) -> navCommand.register(dispatcher));
+    CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+      navCommand.register(dispatcher);
+      navBuildCommand.register(dispatcher);
+    });
 
     ServerLifecycleEvents.SERVER_STARTING.register(s -> server = s);
     ServerLifecycleEvents.SERVER_STARTED.register(s -> {
-      NavServices.start(s, SnapshotCache.Config.defaults());
+      NavServices nav = NavServices.start(s, SnapshotCache.Config.defaults());
+      NavGraphServices.start(s, nav);
       LOGGER.info("squaremap-pro nav services started");
     });
     ServerLifecycleEvents.SERVER_STOPPING.register(s -> {
@@ -66,6 +79,8 @@ public final class NavFabricMod implements ModInitializer {
       } catch (RuntimeException | LinkageError e) {
         LOGGER.warn("failed to release squaremap navigation layers", e);
       }
+      // Queue final graph saves before the executor stops accepting tasks; never waits.
+      NavGraphServices.stop(s);
       NavServices.stop(s);
       navCommand.clearInFlight();
       LOGGER.info("squaremap-pro nav services stopped");
@@ -80,7 +95,13 @@ public final class NavFabricMod implements ModInitializer {
       if (services != null) {
         services.tick(s);
       }
+      NavGraphServices graphs = NavGraphServices.current();
+      if (graphs != null) {
+        graphs.tick(s);
+      }
     });
+    ServerChunkEvents.CHUNK_LOAD.register(BlockChangeTracker::onChunkLoad);
+    ServerChunkEvents.CHUNK_UNLOAD.register(BlockChangeTracker::onChunkUnload);
     ServerLifecycleEvents.END_DATA_PACK_RELOAD.register((s, resourceManager, success) -> {
       NavServices services = NavServices.current();
       if (services != null && success) {

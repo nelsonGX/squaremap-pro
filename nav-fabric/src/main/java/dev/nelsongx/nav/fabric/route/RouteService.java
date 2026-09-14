@@ -5,6 +5,7 @@ import dev.nelsongx.nav.core.PathResult;
 import dev.nelsongx.nav.core.hierarchy.HierarchicalOptions;
 import dev.nelsongx.nav.core.hierarchy.Router;
 import dev.nelsongx.nav.core.region.RegionGraph;
+import dev.nelsongx.nav.fabric.graph.GraphUsePolicy;
 import dev.nelsongx.nav.fabric.world.NavExecutor;
 import dev.nelsongx.nav.fabric.world.NavServices;
 import dev.nelsongx.nav.fabric.world.SnapshotCache;
@@ -116,7 +117,7 @@ public final class RouteService {
       return cache.prepare(box.minChunkX(), box.minChunkZ(), box.maxChunkX(), box.maxChunkZ())
           .handleAsync((view, err) -> err != null
               ? fromThrowable(world, err)
-              : search(dimension, world, view, fromX, fromY, fromZ, toX, toZ), executor)
+              : search(dimension, world, view, box, fromX, fromY, fromZ, toX, toZ), executor)
           .exceptionally(t -> fromThrowable(world, t));
     } catch (RuntimeException e) {
       return CompletableFuture.completedFuture(fromThrowable(world, e));
@@ -125,7 +126,7 @@ public final class RouteService {
 
   /** THREADING: NavExecutor worker only (reads the immutable snapshot view). */
   private RouteOutcome search(ResourceKey<Level> dimension, String world, SnapshotWorldView view,
-      int fromX, OptionalInt fromY, int fromZ, int toX, int toZ) {
+      ChunkBox box, int fromX, OptionalInt fromY, int fromZ, int toX, int toZ) {
     OptionalInt startY = fromY.isPresent()
         ? Endpoints.nearestWalkableY(view, fromX, fromY.getAsInt(), fromZ)
         : view.groundY(fromX, fromZ);
@@ -142,7 +143,9 @@ public final class RouteService {
       return RouteOutcome.failure(RouteOutcome.Status.INVALID_REQUEST, world, start, null, 0,
           noGround(toX, toZ));
     }
-    RegionGraph graph = graphSupplier.apply(dimension);
+    // Holes in the graph inside the searched box would produce false NO_PATH: use it only if complete.
+    RegionGraph graph = GraphUsePolicy.usableFor(graphSupplier.apply(dimension), box, view.minY(),
+        view.maxY());
     PathResult result = Router.route(view, graph, start, goal, options);
     return RouteOutcome.fromPathResult(world, start, goal, result);
   }
