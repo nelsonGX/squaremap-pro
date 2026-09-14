@@ -1,0 +1,13 @@
+{
+  "worlds": [
+    { "name": "minecraft_overworld", "display_name": "minecraft:overworld", "icon": "", "type": "normal", "order": 0 },
+    { "name": "minecraft_the_nether", "display_name": "minecraft:the_nether", "icon": "", "type": "nether", "order": 1 },
+    { "name": "minecraft_the_end", "display_name": "minecraft:the_end", "icon": "", "type": "the_end", "order": 2 }
+  ],
+  "ui": {
+    "title": "squaremap - {world}",
+    "coordinates": { "enabled": true, "html": "Coordinates<br/>{x}, {z}" },
+    "link": { "enabled": true },
+    "sidebar": { "pinned": "unpinned", "player_list_label": "Players ({cur}/{max})", "world_list_label": "Worlds" }
+  }
+}

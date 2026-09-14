@@ -1,0 +1,22 @@
+{
+  "spawn": { "x": 0, "z": 0 },
+  "player_tracker": {
+    "enabled": true,
+    "update_interval": 1,
+    "label": "Players",
+    "show_controls": true,
+    "default_hidden": false,
+    "priority": 2,
+    "z_index": 2,
+    "nameplates": {
+      "enabled": true,
+      "show_heads": true,
+      "heads_url": "https://mc-heads.net/avatar/{uuid}/16",
+      "show_armor": true,
+      "show_health": true
+    }
+  },
+  "zoom": { "max": 3, "def": 3, "extra": 2 },
+  "marker_update_interval": 5,
+  "tiles_update_interval": 15
+}

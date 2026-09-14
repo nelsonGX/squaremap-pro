@@ -1,0 +1,11 @@
+.map {
+  position: absolute;
+  inset: 0;
+  /* Grid background shown where no squaremap tiles exist (e.g. with the bundled mock). */
+  background-color: #1f2933;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 32px 32px;
+  outline: none;
+}

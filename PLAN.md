@@ -18,7 +18,7 @@ check no `ServerLevel` access off the server thread, update this file, stop and 
 | 8  | `[x]`  | nav-fabric | `/nav <x> <z>` Brigadier command + squaremap `SimpleLayerProvider` polyline; handle squaremap absent, no path, cap exceeded | `./gradlew build` |
 | 9  | `[x]`  | nav-fabric | `/navbuild` throttled region-graph builder + invalidation on block change                             | `./gradlew build` |
 | 10 | `[x]`  | nav-fabric | Javalin `GET /route?from=&to=` returning the CLAUDE.md schema                                         | `./gradlew build` |
-| 11 | `[~]`  | web        | Next.js + Leaflet, squaremap tiles, directions panel, mock endpoint; CRS/transform from squaremap frontend source | `cd web && npm test` (+ `npm run build`) |
+| 11 | `[x]`  | web        | Next.js + Leaflet, squaremap tiles, directions panel, mock endpoint; CRS/transform from squaremap frontend source | `cd web && npm test` (+ `npm run build`) |
 
 ## Decisions log
 
@@ -52,3 +52,7 @@ None. User (2026-09-14): "finish all and commit each stage yourself" — run tas
   Notable: snapshot margin 2 chunks (margin 1 proven insufficient for neighbour links); sectors adjacent to unloaded built sectors are deferred.
 - **Task 10 — done 2026-09-15.** (First attempt interrupted by an API rate limit, resumed — not counted as a failed attempt.) Lead-verified: clean build green; 240 tests, 0 failures; purity grep empty; only `RouteHttpLifecycle` imports MC/Fabric in `http/`. Javalin 7.2.3 (Jetty 12.1.12, kotlin-stdlib 2.2.20) nested as 32 jars (~6.6 MB; mod jar 18.5 MB total); slf4j/ASM/Gson taken from MC/Loader. Config `config/squaremap-pro.properties` (bind 127.0.0.1:8765, CORS `http://localhost:3000`, timeout 10 s, max 16 concurrent). Start/stop + config I/O on a lifecycle daemon thread; handlers complete via `ctx.future`; GET-only CORS filter.
   **Not yet validated in a running game:** nested Jetty/Kotlin jar loading under Fabric Loader, and possible kotlin-stdlib overlap with Fabric Language Kotlin.
+- **Task 11 — done 2026-09-15.** Lead-verified in `web/`: `npm test` 69 passed, `npx tsc --noEmit` clean, `npm run lint` clean, `npm run build` green; repo-wide `./gradlew clean build` still green, purity grep empty. Next 16.3.5 / React 19.3 / Leaflet 1.9.4 / Vitest 5 / TypeScript 6.0.3 (TS 7 incompatible with Next + typescript-eslint). CRS ported from squaremap v1.3.12 (`L.CRS.Simple`, `lat = -z/2^max`, `lng = x/2^max`, tiles `tiles/<world>/{z}/{x}_{y}.png`, 512 px). Mock `/api/mock/route` mirrors schema + status codes (to.x = 13/14/15 → no_path/cap_exceeded/not_ready). Turn-by-turn derived client-side (x east, z south; cross > 0 = right turn).
+  Notes: world web name → id replaces first `_` with `:` (ambiguous for namespaces containing `_`); walking speed 4.317 b/s is an assumption; the mod's `http.cors.origins` must include the web origin.
+
+## Status: all 11 tasks done. Not yet exercised in a live Minecraft server (see Task 10 note).
