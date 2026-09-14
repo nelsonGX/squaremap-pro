@@ -8,7 +8,7 @@ check no `ServerLevel` access off the server thread, update this file, stop and 
 
 | #  | Status | Module     | Task                                                                                                  | Acceptance (run by subagent until green, then re-run by lead) |
 |----|--------|------------|-------------------------------------------------------------------------------------------------------|---------------------------------------------------------------|
-| 1  | `[ ]`  | root, nav-core, nav-fabric | Gradle multi-module skeleton, Loom, squaremap-api compileOnly, `fabric.mod.json` declaring squaremap | `./gradlew build` |
+| 1  | `[x]`  | root, nav-core, nav-fabric | Gradle multi-module skeleton, Loom, squaremap-api compileOnly, `fabric.mod.json` declaring squaremap | `./gradlew build` |
 | 2  | `[ ]`  | nav-core   | Interfaces only: `WorldView` (groundY, walkable), sealed `PathResult` (success w/ points \| failure w/ reason), `FixtureWorld` parsing ASCII-art multi-layer worlds | `./gradlew :nav-core:test` (fixture-parser tests) |
 | 3  | `[ ]`  | nav-core   | A* over `WorldView`: octile heuristic, node cap, pure function                                        | `./gradlew :nav-core:test` — straight line, wall with gap, unreachable, cap exceeded |
 | 4  | `[ ]`  | nav-core   | Path simplification: line-of-sight string pull + Douglas-Peucker                                      | `./gradlew :nav-core:test` — 200-node staircase → <10 points |
@@ -24,8 +24,16 @@ check no `ServerLevel` access off the server thread, update this file, stop and 
 
 - 2026-09-14 — squaremap clone is on MC 26.2; reference revision pinned to tag `v1.3.12` (last 1.21.11 release). `api/` unchanged v1.3.12..master.
 - 2026-09-14 — Mappings: Mojmap (matches squaremap v1.3.12 fabric build).
-- 2026-09-14 — Route schema v1 defined in CLAUDE.md (pending approval).
+- 2026-09-14 — Route schema v1 defined in CLAUDE.md. Approved (user: "do what's most applicable"): optional `world` param, server-resolved Y, no server-side steps (web derives turns from `points`).
+- 2026-09-14 — squaremap declared as `suggests` in fabric.mod.json (optional; Task 8 handles absence).
+- 2026-09-14 — Minecraft signatures are read from Loom `genSources` output and quoted in reports.
 
 ## Open questions for the user
 
-See the approval request in the conversation (pending).
+None.
+
+## Task log
+
+- **Task 1 — done 2026-09-14.** Lead-verified: `./gradlew clean build` green, `:nav-core:test` green (smoke test asserts JDK 21), purity grep empty, mod jar nests `nav-core` via `include`, `fabric.mod.json` has `suggests: squaremap >=1.3.12`.
+  Resolved versions: Gradle 9.2.1 (squaremap v1.3.12's wrapper), `fabric-loom` 1.13.6, MC 1.21.11, Loader 0.18.4, Fabric API 0.141.3+1.21.11, squaremap-api 1.3.12, JUnit 5.13.4.
+  Notes: `gradle.properties` pins `org.gradle.java.installations.paths` to this machine's JDK 21 path (machine-specific). Harmless Loom config warning "Cannot remap modifiers…". squaremap tag v1.3.12 itself built against Loader 0.18.2 / API 0.139.4; we use the newer f3e6f72 values.
