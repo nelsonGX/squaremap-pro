@@ -4,12 +4,14 @@ import dev.nelsongx.nav.fabric.command.NavCommand;
 import dev.nelsongx.nav.fabric.graph.BlockChangeTracker;
 import dev.nelsongx.nav.fabric.graph.NavBuildCommand;
 import dev.nelsongx.nav.fabric.graph.NavGraphServices;
+import dev.nelsongx.nav.fabric.http.RouteHttpLifecycle;
 import dev.nelsongx.nav.fabric.route.RouteService;
 import dev.nelsongx.nav.fabric.squaremap.NavMapLayer;
 import dev.nelsongx.nav.fabric.squaremap.NavMapLayers;
 import dev.nelsongx.nav.fabric.world.NavServices;
 import dev.nelsongx.nav.fabric.world.SnapshotCache;
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -61,6 +63,8 @@ public final class NavFabricMod implements ModInitializer {
     mapLayer = layer;
     NavCommand navCommand = new NavCommand(routes, layer);
     NavBuildCommand navBuildCommand = new NavBuildCommand();
+    // HTTP GET /route: config I/O and Javalin start/stop run on its own daemon lifecycle thread.
+    RouteHttpLifecycle http = new RouteHttpLifecycle(() -> FabricLoader.getInstance().getConfigDir(), routes);
 
     CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
       navCommand.register(dispatcher);
@@ -71,9 +75,11 @@ public final class NavFabricMod implements ModInitializer {
     ServerLifecycleEvents.SERVER_STARTED.register(s -> {
       NavServices nav = NavServices.start(s, SnapshotCache.Config.defaults());
       NavGraphServices.start(s, nav);
+      http.onServerStarted();
       LOGGER.info("squaremap-pro nav services started");
     });
     ServerLifecycleEvents.SERVER_STOPPING.register(s -> {
+      http.onServerStopping();
       try {
         layer.onServerStopping();
       } catch (RuntimeException | LinkageError e) {
