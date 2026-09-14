@@ -231,6 +231,7 @@ public final class FixtureWorld implements WorldView {
    * @param z block z
    * @return whether passable
    */
+  @Override
   public boolean passable(int x, int y, int z) {
     return cell(x, y, z) == AIR;
   }

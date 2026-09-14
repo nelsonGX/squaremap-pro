@@ -26,11 +26,25 @@ public interface WorldView {
   int maxY();
 
   /**
+   * Whether an entity can occupy block {@code (x, y, z)}: the block is neither solid nor fluid.
+   *
+   * <p>Blocks that are unknown, unloaded, or out of bounds (including {@code y} outside
+   * {@code [minY, maxY]}) yield {@code false}.
+   *
+   * @param x block x
+   * @param y block y
+   * @param z block z
+   * @return whether the block can be occupied
+   */
+  boolean passable(int x, int y, int z);
+
+  /**
    * Whether an entity two blocks tall can stand with its feet in block {@code (x, y, z)}.
    *
-   * <p>True iff the block at {@code y - 1} is solid and standable, and both the feet block {@code y}
-   * and head block {@code y + 1} are passable. Positions that are unknown, unloaded, or out of bounds
-   * (including a feet or head block outside {@code [minY, maxY]}) yield {@code false}.
+   * <p>True iff the block at {@code y - 1} is solid and standable, and
+   * {@link #passable(int, int, int)} holds for both the feet block {@code y} and the head block
+   * {@code y + 1}. Positions that are unknown, unloaded, or out of bounds (including a feet or head
+   * block outside {@code [minY, maxY]}) yield {@code false}.
    *
    * @param x block x
    * @param y feet block y
