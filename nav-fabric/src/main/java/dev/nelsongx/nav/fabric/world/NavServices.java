@@ -93,6 +93,11 @@ public final class NavServices {
     executor.shutdown();
   }
 
+  /** @return the snapshot cache tunables (immutable). ANY THREAD. */
+  public SnapshotCache.Config config() {
+    return config;
+  }
+
   /** @return the worker pool. ANY THREAD. */
   public NavExecutor executor() {
     return executor;
