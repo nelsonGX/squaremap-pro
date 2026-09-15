@@ -15,6 +15,7 @@ import dev.nelsongx.map.core.store.FeatureStore;
 import dev.nelsongx.map.fabric.auth.SessionStore;
 import dev.nelsongx.map.fabric.auth.TokenStore;
 import dev.nelsongx.map.fabric.http.api.ApiServices;
+import dev.nelsongx.map.fabric.http.api.FeatureChangeListener;
 import dev.nelsongx.map.fabric.world.WorldDirectory;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -57,6 +58,18 @@ class ApiServerTest {
   private TokenStore tokens;
   private MapHttpServer server;
   private Path tiles;
+  private final java.util.List<String> changeLog = new java.util.concurrent.CopyOnWriteArrayList<>();
+  private final FeatureChangeListener changes = new FeatureChangeListener() {
+    @Override
+    public void onUpsert(String worldId, dev.nelsongx.map.core.feature.Feature feature) {
+      changeLog.add("upsert " + worldId + " " + feature.id() + " r" + feature.revision());
+    }
+
+    @Override
+    public void onDelete(String worldId, dev.nelsongx.map.core.feature.Feature deleted) {
+      changeLog.add("delete " + worldId + " " + deleted.id());
+    }
+  };
 
   @BeforeEach
   void setUp() throws Exception {
@@ -77,9 +90,9 @@ class ApiServerTest {
         new WorldDirectory.World(CUSTOM, "my_mod_deep dark"));
     ApiServices services = new ApiServices(executor, tokens, () -> sessions, () -> features,
         actor -> CompletableFuture.completedFuture(allowed.getOrDefault(actor.uuid(), false)),
-        worlds, () -> tiles, ApiServerTest.class.getClassLoader(), "testweb/", clock);
+        worlds, () -> tiles, ApiServerTest.class.getClassLoader(), "testweb/", clock, changes);
     HttpConfig config = new HttpConfig(true, "127.0.0.1", 0, List.of(), 5000, 16, "", 168, true,
-        Speeds.defaults(), 100);
+        Speeds.defaults(), 100, false);
     server = new MapHttpServer(config, services);
     server.start();
   }
@@ -251,10 +264,14 @@ class ApiServerTest {
     assertEquals("conflict", obj(stale).get("error").getAsString());
     assertEquals(2, obj(stale).getAsJsonObject("current").get("revision").getAsInt());
 
+    assertEquals(List.of("upsert minecraft:overworld " + id + " r1",
+        "upsert minecraft:overworld " + id + " r2"), changeLog, "listener sees successful writes only");
     assertEquals(409, send("DELETE", "/api/worlds/minecraft:overworld/features/" + id + "?revision=1",
         null, cookie, true).statusCode());
     assertEquals(204, send("DELETE", "/api/worlds/minecraft:overworld/features/" + id + "?revision=2",
         null, cookie, true).statusCode());
+    assertEquals("delete minecraft:overworld " + id, changeLog.get(changeLog.size() - 1));
+    assertEquals(3, changeLog.size());
     assertEquals(404, send("DELETE", "/api/worlds/minecraft:overworld/features/" + id + "?revision=3",
         null, cookie, true).statusCode());
     HttpResponse<String> missing = send("PUT", "/api/worlds/minecraft:overworld/features/f_nope",
@@ -448,7 +465,7 @@ class ApiServerTest {
         new ApiServices(executor, tokens, () -> sessions, () -> features,
             a -> new CompletableFuture<>(), // never completes
             () -> List.of(new WorldDirectory.World(OVERWORLD, "o")), () -> null,
-            ApiServerTest.class.getClassLoader(), "testweb/", Clock.systemUTC()));
+            ApiServerTest.class.getClassLoader(), "testweb/", Clock.systemUTC(), FeatureChangeListener.NONE));
     slow.start();
     try {
       String cookie = sessions.create(STEVE).id();
@@ -470,7 +487,8 @@ class ApiServerTest {
     MapHttpServer bare = new MapHttpServer(new HttpConfig(true, "127.0.0.1", 0, List.of(), 5000, 4),
         new ApiServices(executor, tokens, () -> null, () -> null,
             a -> CompletableFuture.completedFuture(false), List::of, () -> null,
-            ApiServerTest.class.getClassLoader(), "no-such-bundle/", Clock.systemUTC()));
+            ApiServerTest.class.getClassLoader(), "no-such-bundle/", Clock.systemUTC(),
+            FeatureChangeListener.NONE));
     bare.start();
     try {
       HttpResponse<String> r = client.send(HttpRequest.newBuilder(

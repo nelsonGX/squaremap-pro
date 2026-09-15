@@ -26,6 +26,7 @@ import java.util.function.Supplier;
  * @param webLoader class loader holding the bundled web export
  * @param webPrefix resource prefix of the web export, e.g. {@code web/}
  * @param clock clock for the permission cache
+ * @param changes notified after successful writes
  */
 // THREADING: immutable holder; every component is safe to call from Jetty request threads.
 public record ApiServices(
@@ -38,7 +39,8 @@ public record ApiServices(
     Supplier<Path> tilesDir,
     ClassLoader webLoader,
     String webPrefix,
-    Clock clock) {
+    Clock clock,
+    FeatureChangeListener changes) {
 
   /** Validates. */
   public ApiServices {
@@ -52,6 +54,7 @@ public record ApiServices(
     Objects.requireNonNull(webLoader, "webLoader");
     Objects.requireNonNull(webPrefix, "webPrefix");
     Objects.requireNonNull(clock, "clock");
+    Objects.requireNonNull(changes, "changes");
   }
 
   /** Default classpath prefix of the bundled web export (PLAN task 10). */
@@ -62,6 +65,7 @@ public record ApiServices(
     Clock clock = Clock.systemUTC();
     return new ApiServices(Runnable::run, new TokenStore(clock), () -> null, () -> null,
         actor -> java.util.concurrent.CompletableFuture.completedFuture(false), List::of,
-        () -> null, ApiServices.class.getClassLoader(), WEB_PREFIX, clock);
+        () -> null, ApiServices.class.getClassLoader(), WEB_PREFIX, clock,
+        FeatureChangeListener.NONE);
   }
 }

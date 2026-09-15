@@ -3,6 +3,9 @@ package dev.nelsongx.map.fabric;
 import dev.nelsongx.map.core.store.FeatureStore;
 import dev.nelsongx.map.fabric.auth.AuthServices;
 import dev.nelsongx.map.fabric.http.api.ApiServices;
+import dev.nelsongx.map.fabric.http.api.FeatureChangeListener;
+import dev.nelsongx.map.fabric.squaremap.FeatureMirror;
+import dev.nelsongx.map.fabric.world.WorldDirectory;
 import dev.nelsongx.map.fabric.world.LevelWorldDirectory;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import dev.nelsongx.map.fabric.auth.FabricPermissionChecker;
@@ -73,6 +76,8 @@ public final class MapFabricMod implements ModInitializer {
   public void onInitialize() {
     MapLayer layer = MapLayers.create(() -> server);
     mapLayer = layer;
+    FeatureMirror mirror = new FeatureMirror(layer);
+    layer.onWorldRegistered(mirror::renderAll);
     // Config I/O and Javalin start/stop run on the HTTP lifecycle's own daemon thread.
     HttpLifecycle lifecycle = new HttpLifecycle(() -> FabricLoader.getInstance().getConfigDir());
     http = lifecycle;
@@ -87,6 +92,11 @@ public final class MapFabricMod implements ModInitializer {
       LevelWorldDirectory dir = worlds;
       if (dir != null && s.getTickCount() % 100 == 0) {
         dir.refresh(s);
+        try {
+          layer.tick(); // re-registers squaremap layers lost to a squaremap reload
+        } catch (RuntimeException | LinkageError e) {
+          LOGGER.warn("squaremap layer check failed", e);
+        }
       }
     });
     ServerLifecycleEvents.SERVER_STARTED.register(s -> {
@@ -113,13 +123,27 @@ public final class MapFabricMod implements ModInitializer {
         // Lifecycle thread: hand the blocking SQLite opens to the worker pool.
         try {
           ex.execute(() -> services.openSessions(sessionsDb, config.sessionTtl()));
-          ex.execute(() -> featureStore.open(() -> FeatureStore.open(mapDb, clock)));
+          ex.execute(() -> {
+            featureStore.open(() -> FeatureStore.open(mapDb, clock));
+            FeatureStore store = featureStore.get();
+            if (config.squaremapMirror() && store != null) {
+              // Full rebuild of every loaded world's squaremap markers (worker thread).
+              for (WorldDirectory.World w : worldDir.worlds()) {
+                try {
+                  mirror.replaceAll(w.id(), store.list(w.id()));
+                } catch (RuntimeException | LinkageError e) {
+                  LOGGER.warn("squaremap mirror rebuild failed for {}", w.id(), e);
+                }
+              }
+            }
+          });
         } catch (RejectedExecutionException e) {
           LOGGER.warn("squaremap-pro stores not opened (server stopping)");
         }
         return new ApiServices(ex, services.tokens(), services::sessions, featureStore::get,
             services.permissions(), worldDir, layer::tilesDir, MapFabricMod.class.getClassLoader(),
-            ApiServices.WEB_PREFIX, clock);
+            ApiServices.WEB_PREFIX, clock,
+            config.squaremapMirror() ? mirror : FeatureChangeListener.NONE);
       });
       LOGGER.info("squaremap-pro services started");
     });

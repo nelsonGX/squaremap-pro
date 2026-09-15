@@ -24,6 +24,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Request logic of the HTTP API (CLAUDE.md "Auth", "Features v1", "Route schema v2"). Handlers take
@@ -43,6 +45,7 @@ public final class ApiHandlers {
   /** Required CSRF header value. */
   public static final String CSRF_VALUE = "squaremap-pro";
 
+  private static final Logger LOGGER = LoggerFactory.getLogger("squaremap-pro");
   private static final Pattern REVISION = Pattern.compile("[1-9][0-9]{0,17}");
 
   private final ApiServices services;
@@ -172,7 +175,7 @@ public final class ApiHandlers {
       if (!input.errors().isEmpty()) {
         return validation(input.errors());
       }
-      return storeReply(world, store.create(world, input.data(), actor), 201);
+      return storeReply(world, store.create(world, input.data(), actor), 201, false);
     });
   }
 
@@ -184,7 +187,8 @@ public final class ApiHandlers {
       if (!input.errors().isEmpty()) {
         return validation(input.errors());
       }
-      return storeReply(world, store.update(world, id, input.revision(), input.data(), actor), 200);
+      return storeReply(world, store.update(world, id, input.revision(), input.data(), actor), 200,
+          false);
     });
   }
 
@@ -196,7 +200,7 @@ public final class ApiHandlers {
         return validation(List.of(
             new ValidationError("revision", "revision query parameter must be a positive integer")));
       }
-      return storeReply(world, store.delete(world, id, Long.parseLong(revision), actor), 204);
+      return storeReply(world, store.delete(world, id, Long.parseLong(revision), actor), 204, true);
     });
   }
 
@@ -235,10 +239,11 @@ public final class ApiHandlers {
     });
   }
 
-  private Reply storeReply(String world, Result result, int okStatus) {
+  private Reply storeReply(String world, Result result, int okStatus, boolean deleted) {
     return switch (result) {
       case Result.Ok ok -> {
         networks.invalidate(world);
+        notifyChange(world, ok.feature(), deleted);
         yield okStatus == 204 ? Reply.empty(204) : Reply.json(okStatus, FeatureJson.toJson(ok.feature()));
       }
       case Result.Invalid invalid -> validation(invalid.errors());
@@ -256,6 +261,18 @@ public final class ApiHandlers {
         yield Reply.json(422, o);
       }
     };
+  }
+
+  private void notifyChange(String world, Feature feature, boolean deleted) {
+    try {
+      if (deleted) {
+        services.changes().onDelete(world, feature);
+      } else {
+        services.changes().onUpsert(world, feature);
+      }
+    } catch (RuntimeException | LinkageError e) {
+      LOGGER.warn("feature change listener failed for {} in {}", feature.id(), world, e);
+    }
   }
 
   private static Reply validation(List<ValidationError> errors) {

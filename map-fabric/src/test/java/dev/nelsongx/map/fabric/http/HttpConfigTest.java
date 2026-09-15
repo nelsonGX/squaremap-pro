@@ -126,6 +126,10 @@ class HttpConfigTest {
     HttpConfig d = HttpConfig.defaults();
     assertEquals(dev.nelsongx.map.core.route.Speeds.defaults(), d.speeds());
     assertEquals(Double.POSITIVE_INFINITY, d.maxDirectWalk());
+    assertTrue(d.squaremapMirror(), "squaremap.mirror defaults to true");
+    Properties off = new Properties();
+    off.setProperty("squaremap.mirror", "false");
+    assertEquals(false, HttpConfig.parse(off, w -> { }).squaremapMirror());
     assertEquals(List.of(), d.corsOrigins(), "CORS off by default (same-origin)");
 
     Properties p = new Properties();

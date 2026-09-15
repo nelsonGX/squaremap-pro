@@ -1,10 +1,14 @@
 package dev.nelsongx.map.fabric.squaremap;
 
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import net.minecraft.server.MinecraftServer;
 import org.slf4j.Logger;
@@ -19,12 +23,19 @@ import xyz.jpenilla.squaremap.api.SquaremapProvider;
 import xyz.jpenilla.squaremap.api.WorldIdentifier;
 
 /**
- * squaremap-backed layer plumbing: one {@link SimpleLayerProvider} per mapped world, registered lazily
- * via {@link #ensureLayer} and unregistered on server stop. Markers are added by PLAN task 10.
+ * squaremap-backed layer: one {@link SimpleLayerProvider} "Map features" per mapped world, registered
+ * lazily on the server thread and unregistered on server stop; markers come from {@link FeatureMirror}.
  *
- * <p>This is the only class in the mod that references {@code xyz.jpenilla.squaremap}. It is only
- * ever loaded through {@link MapLayers#create}, after {@code FabricLoader.isModLoaded("squaremap")}
- * returned true.
+ * <p>squaremap-api v1.3.12 signatures used: {@code SquaremapProvider.get()},
+ * {@code Squaremap.getWorldIfEnabled(WorldIdentifier)}, {@code Squaremap.webDir()},
+ * {@code WorldIdentifier.parse(String)}, {@code MapWorld.layerRegistry()},
+ * {@code Registry.register/unregister/hasEntry/get(Key)}, {@code SimpleLayerProvider.builder(String)}
+ * {@code .showControls(boolean).defaultHidden(boolean).layerPriority(int).zIndex(int).build()},
+ * {@code SimpleLayerProvider.addMarker(Key, Marker)}, {@code removeMarker(Key)}, {@code clearMarkers()}.
+ *
+ * <p>This class and {@link SquaremapMarkers} are the only classes that reference
+ * {@code xyz.jpenilla.squaremap}; they are only loaded through {@link MapLayers#create} after
+ * {@code FabricLoader.isModLoaded("squaremap")} returned true.
  *
  * <p>The squaremap API is looked up lazily on every use because squaremap registers
  * {@code SquaremapProvider} in its own initializer (load order relative to ours is unspecified) and
@@ -34,20 +45,27 @@ import xyz.jpenilla.squaremap.api.WorldIdentifier;
 // - Layer registration/unregistration (MapWorld.layerRegistry(), Registry.register/unregister) — SERVER
 //   THREAD ONLY. MapWorldInternal.layerRegistry() does computeIfAbsent on a plain static HashMap
 //   (`private static final Map<WorldIdentifier, LayerRegistry> LAYER_REGISTRIES = new HashMap<>();`,
-//   common/.../data/MapWorldInternal.java v1.3.12), so it is never called off the server thread here.
-// - Marker add/remove on a registered provider — ANY THREAD. SimpleLayerProvider stores markers in
+//   common/.../data/MapWorldInternal.java v1.3.12). Workers that find no provider schedule
+//   registration with server.execute(...) and never wait for it.
+// - Marker add/remove/clear on a registered provider — ANY THREAD. SimpleLayerProvider stores markers in
 //   `private final Map<Key, Marker> markers = new ConcurrentHashMap<>();` (api/.../SimpleLayerProvider.java
 //   v1.3.12).
-// - `providers` is a ConcurrentHashMap written only on the server thread and read anywhere.
+// - `providers` is a ConcurrentHashMap written only on the server thread and read anywhere;
+//   `pending` is a concurrent set; `listener` is volatile.
 public final class SquaremapMapLayer implements MapLayer {
 
   private static final Logger LOGGER = LoggerFactory.getLogger("squaremap-pro");
-  static final Key LAYER_KEY = Key.of("squaremap-pro_map");
+  static final Key LAYER_KEY = Key.of("squaremap-pro_features");
+  static final String LAYER_LABEL = "Map features";
 
   private final Supplier<MinecraftServer> server;
   /** worldId → provider we registered. Written on the server thread only. */
   private final Map<String, SimpleLayerProvider> providers = new ConcurrentHashMap<>();
+  /** Worlds whose registration has been scheduled (or that we want kept registered). */
+  private final Set<String> wanted = ConcurrentHashMap.newKeySet();
+  private final Set<String> pending = ConcurrentHashMap.newKeySet();
   private final AtomicBoolean loggedApiMissing = new AtomicBoolean();
+  private volatile Consumer<String> listener = w -> { };
 
   /**
    * @param server supplier of the running server, or null when none; any thread
@@ -68,11 +86,6 @@ public final class SquaremapMapLayer implements MapLayer {
     }
   }
 
-  /** @return the running server or null. ANY THREAD. */
-  MinecraftServer server() {
-    return server.get();
-  }
-
   @Override
   public boolean available() {
     return api() != null;
@@ -85,9 +98,83 @@ public final class SquaremapMapLayer implements MapLayer {
    * it from HTTP threads only risks a stale value right after a squaremap reload.
    */
   @Override
-  public java.nio.file.Path tilesDir() {
+  public Path tilesDir() {
     Squaremap api = api();
     return api == null ? null : api.webDir().resolve("tiles");
+  }
+
+  @Override
+  public void putMarker(String worldId, String featureId, MarkerSpec spec) {
+    SimpleLayerProvider p = providerOrSchedule(worldId);
+    if (p != null) {
+      p.addMarker(SquaremapMarkers.key(featureId), SquaremapMarkers.toMarker(spec));
+    }
+  }
+
+  @Override
+  public void removeMarker(String worldId, String featureId) {
+    SimpleLayerProvider p = providers.get(worldId);
+    if (p != null) {
+      p.removeMarker(SquaremapMarkers.key(featureId));
+    }
+  }
+
+  @Override
+  public void clearMarkers(String worldId) {
+    SimpleLayerProvider p = providerOrSchedule(worldId);
+    if (p != null) {
+      p.clearMarkers();
+    }
+  }
+
+  @Override
+  public void onWorldRegistered(Consumer<String> listener) {
+    this.listener = Objects.requireNonNull(listener, "listener");
+  }
+
+  /** @return our provider, or null after scheduling registration on the server thread. ANY THREAD. */
+  private SimpleLayerProvider providerOrSchedule(String worldId) {
+    wanted.add(worldId);
+    SimpleLayerProvider p = providers.get(worldId);
+    if (p != null) {
+      return p;
+    }
+    MinecraftServer s = server.get();
+    if (s == null || s.isSameThread() || !pending.add(worldId)) {
+      // on the server thread the tick() check will register it; avoid re-entrant repaint
+      return null;
+    }
+    try {
+      s.executeIfPossible(() -> {
+        pending.remove(worldId);
+        if (s.isSameThread()) {
+          registerAndNotify(worldId);
+        }
+      });
+    } catch (RejectedExecutionException e) {
+      pending.remove(worldId);
+    }
+    return null;
+  }
+
+  /** SERVER THREAD ONLY. */
+  private void registerAndNotify(String worldId) {
+    SimpleLayerProvider before = providers.get(worldId);
+    Optional<SimpleLayerProvider> after = ensureLayer(worldId);
+    if (after.isPresent() && after.get() != before) {
+      try {
+        listener.accept(worldId);
+      } catch (RuntimeException e) {
+        LOGGER.warn("squaremap-pro repaint of {} failed", worldId, e);
+      }
+    }
+  }
+
+  @Override
+  public void tick() {
+    for (String worldId : wanted) {
+      registerAndNotify(worldId);
+    }
   }
 
   /**
@@ -121,11 +208,11 @@ public final class SquaremapMapLayer implements MapLayer {
       // are static and outlive a server); replace it.
       registry.unregister(LAYER_KEY);
     }
-    SimpleLayerProvider provider = SimpleLayerProvider.builder("Map")
+    SimpleLayerProvider provider = SimpleLayerProvider.builder(LAYER_LABEL)
         .showControls(true)
         .defaultHidden(false)
         .layerPriority(10)
-        .zIndex(500)
+        .zIndex(250)
         .build();
     registry.register(LAYER_KEY, provider);
     providers.put(worldId, provider);
@@ -160,6 +247,8 @@ public final class SquaremapMapLayer implements MapLayer {
         provider.clearMarkers();
       }
       providers.clear();
+      wanted.clear();
+      pending.clear();
     }
   }
 }

@@ -37,12 +37,14 @@ import org.slf4j.LoggerFactory;
  * @param speeds routing speeds in blocks per second ({@code route.speed.*})
  * @param maxDirectWalk longest direct start-to-goal walk the router may return, in blocks
  *     ({@code route.maxDirectWalk}; empty = unlimited)
+ * @param squaremapMirror whether features are also drawn as a layer on squaremap's own map
+ *     ({@code squaremap.mirror})
  */
 // THREADING: immutable value, read from any thread. load() does file I/O and is called only on the
 // "squaremap-pro-http-lifecycle" thread (HttpLifecycle) or a test thread, never on the server thread.
 public record HttpConfig(boolean enabled, String bind, int port, List<String> corsOrigins,
     long timeoutMs, int maxConcurrent, String publicUrl, int sessionTtlHours, boolean cookieSecure,
-    Speeds speeds, double maxDirectWalk) {
+    Speeds speeds, double maxDirectWalk, boolean squaremapMirror) {
 
   /** Config file name inside the Fabric config directory. */
   public static final String FILE_NAME = "squaremap-pro.properties";
@@ -70,6 +72,7 @@ public record HttpConfig(boolean enabled, String bind, int port, List<String> co
   static final String K_SPEED_HIGHWAY = "route.speed.highway";
   static final String K_SPEED_RAIL = "route.speed.rail";
   static final String K_MAX_DIRECT_WALK = "route.maxDirectWalk";
+  static final String K_SQUAREMAP_MIRROR = "squaremap.mirror";
 
   /** Upper bound for any {@code route.speed.*} value (blocks per second). */
   static final double MAX_SPEED = 1000;
@@ -77,7 +80,8 @@ public record HttpConfig(boolean enabled, String bind, int port, List<String> co
   /** Every key, in file order. */
   static final List<String> KEYS = List.of(K_ENABLED, K_BIND, K_PORT, K_CORS, K_TIMEOUT,
       K_MAX_CONCURRENT, K_PUBLIC_URL, K_SESSION_TTL, K_COOKIE_SECURE, K_SPEED_WALK, K_SPEED_PATH,
-      K_SPEED_STREET, K_SPEED_MAIN, K_SPEED_HIGHWAY, K_SPEED_RAIL, K_MAX_DIRECT_WALK);
+      K_SPEED_STREET, K_SPEED_MAIN, K_SPEED_HIGHWAY, K_SPEED_RAIL, K_MAX_DIRECT_WALK,
+      K_SQUAREMAP_MIRROR);
 
   /** Validates and copies. */
   public HttpConfig {
@@ -121,7 +125,7 @@ public record HttpConfig(boolean enabled, String bind, int port, List<String> co
   public HttpConfig(boolean enabled, String bind, int port, List<String> corsOrigins, long timeoutMs,
       int maxConcurrent) {
     this(enabled, bind, port, corsOrigins, timeoutMs, maxConcurrent, "", DEFAULT_SESSION_TTL_HOURS,
-        false, Speeds.defaults(), Double.POSITIVE_INFINITY);
+        false, Speeds.defaults(), Double.POSITIVE_INFINITY, true);
   }
 
   /**
@@ -244,7 +248,8 @@ public record HttpConfig(boolean enabled, String bind, int port, List<String> co
         parseSpeed(props, K_SPEED_RAIL, ds.rail(), warn));
 
     return new HttpConfig(enabled, bind, port, origins, timeoutMs, maxConcurrent, publicUrl,
-        sessionTtlHours, cookieSecure, speeds, parseMaxDirectWalk(props, warn));
+        sessionTtlHours, cookieSecure, speeds, parseMaxDirectWalk(props, warn),
+        parseBoolean(props, K_SQUAREMAP_MIRROR, d.squaremapMirror(), warn));
   }
 
   private static double parseMaxDirectWalk(Properties props, Consumer<String> warn) {
@@ -426,6 +431,8 @@ public record HttpConfig(boolean enabled, String bind, int port, List<String> co
       case K_SPEED_RAIL -> K_SPEED_RAIL + "=" + d.speeds().rail() + "\n";
       case K_MAX_DIRECT_WALK -> "# longest walk-only route in blocks; empty = unlimited\n"
           + K_MAX_DIRECT_WALK + "=\n";
+      case K_SQUAREMAP_MIRROR -> "# also draw the map features as a layer on squaremap's own web map\n"
+          + K_SQUAREMAP_MIRROR + "=" + d.squaremapMirror() + "\n";
       default -> throw new IllegalArgumentException(key);
     };
   }
