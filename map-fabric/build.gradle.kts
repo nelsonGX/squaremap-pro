@@ -78,9 +78,10 @@ dependencies {
 
 // ---- web bundle (PLAN task 10) ------------------------------------------------------------------
 // `./gradlew build` runs `npm ci` (when node_modules is missing or package-lock.json changed) and
-// `npm run build` (Next static export) in ../web, then packs web/out/** into the jar under `web/`,
-// where MapHttpServer serves it. `-PskipWeb` skips all of it: the jar then has no bundle and the
-// server answers "web bundle missing".
+// `npm run build` (Next static export) in ../web, then packs web/out/** into the jar under
+// `squaremap-pro/web/` (not `web/`: squaremap's jar has its own `web/index.html` on the shared mod
+// class path), where MapHttpServer serves it. `-PskipWeb` skips all of it: the jar then has no bundle
+// and the server answers "web bundle missing".
 val skipWeb = providers.gradleProperty("skipWeb").isPresent
 val webDir = rootProject.layout.projectDirectory.dir("web")
 val webOut = webDir.dir("out")
@@ -137,7 +138,7 @@ tasks.processResources {
   if (!skipWeb) {
     dependsOn(webBuild)
     from(webOut) {
-      into("web")
+      into("squaremap-pro/web") // must match ApiServices.WEB_PREFIX
     }
   }
 }

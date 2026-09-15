@@ -57,8 +57,12 @@ public record ApiServices(
     Objects.requireNonNull(changes, "changes");
   }
 
-  /** Default classpath prefix of the bundled web export (PLAN task 10). */
-  public static final String WEB_PREFIX = "web/";
+  /**
+   * Default classpath prefix of the bundled web export (PLAN task 10). Must be unique to this mod:
+   * Fabric Loader serves every mod's resources through one class loader, and squaremap's jar has its
+   * own {@code web/index.html}, which a plain {@code web/} prefix resolved to first (Task 11).
+   */
+  public static final String WEB_PREFIX = "squaremap-pro/web/";
 
   /** @return services with nothing ready (health check only; everything else 503/404) */
   public static ApiServices unavailable() {
