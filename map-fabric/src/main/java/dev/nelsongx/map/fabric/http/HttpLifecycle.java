@@ -6,7 +6,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
+import dev.nelsongx.map.fabric.http.api.ApiServices;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,32 +56,35 @@ public final class HttpLifecycle {
     return running;
   }
 
-  /** SERVER_STARTED hook. Server thread; enqueues only. */
+  /** SERVER_STARTED hook without backends (health check only). Server thread; enqueues only. */
   public void onServerStarted() {
-    onServerStarted(config -> { });
+    onServerStarted(config -> ApiServices.unavailable());
   }
 
   /**
    * SERVER_STARTED hook. Server thread; enqueues only.
    *
-   * @param configLoaded called on the lifecycle thread with the freshly loaded config (also when the
-   *     HTTP server is disabled), before the server is started; must not block for long
+   * @param servicesForConfig called on the lifecycle thread with the freshly loaded config (also when
+   *     the HTTP server is disabled), before the server is started; returns the API backends. Must not
+   *     block for long (hand store opening to the worker executor).
    */
-  public void onServerStarted(Consumer<HttpConfig> configLoaded) {
-    Objects.requireNonNull(configLoaded, "configLoaded");
+  public void onServerStarted(Function<HttpConfig, ApiServices> servicesForConfig) {
+    Objects.requireNonNull(servicesForConfig, "servicesForConfig");
     submit(() -> {
       stopCurrent();
       HttpConfig config = HttpConfig.load(configDir.get());
+      ApiServices services;
       try {
-        configLoaded.accept(config);
+        services = servicesForConfig.apply(config);
       } catch (RuntimeException | LinkageError e) {
-        LOGGER.error("squaremap-pro config listener failed", e);
+        LOGGER.error("squaremap-pro service setup failed", e);
+        services = ApiServices.unavailable();
       }
       if (!config.enabled()) {
         LOGGER.info("squaremap-pro HTTP server disabled (http.enabled=false)");
         return;
       }
-      MapHttpServer s = new MapHttpServer(config);
+      MapHttpServer s = new MapHttpServer(config, services);
       try {
         s.start();
         server = s;

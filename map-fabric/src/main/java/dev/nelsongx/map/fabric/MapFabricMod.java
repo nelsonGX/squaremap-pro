@@ -1,6 +1,10 @@
 package dev.nelsongx.map.fabric;
 
+import dev.nelsongx.map.core.store.FeatureStore;
 import dev.nelsongx.map.fabric.auth.AuthServices;
+import dev.nelsongx.map.fabric.http.api.ApiServices;
+import dev.nelsongx.map.fabric.world.LevelWorldDirectory;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import dev.nelsongx.map.fabric.auth.FabricPermissionChecker;
 import dev.nelsongx.map.fabric.auth.TokenStore;
 import dev.nelsongx.map.fabric.command.MapEditCommand;
@@ -24,10 +28,12 @@ import org.slf4j.LoggerFactory;
  * and {@link AuthServices}; starts/stops the HTTP server; registers {@code /mapedit}.
  */
 // THREADING: onInitialize runs once on the main/loader thread and only registers callbacks. The
-// lifecycle callbacks (SERVER_STARTED, SERVER_STOPPING, SERVER_STOPPED) are invoked by Fabric on the
-// server thread and never block; SERVER_STARTING only stores the server reference. The session store
-// is opened (after the HTTP lifecycle thread has loaded the config) and closed on the MapExecutor.
-// `server`, `executor`, `auth` and `mapLayer` are volatile and read from any thread.
+// lifecycle and tick callbacks (SERVER_STARTED, SERVER_STOPPING, SERVER_STOPPED, END_SERVER_TICK) are
+// invoked by Fabric on the server thread and never block; SERVER_STARTING only stores the server
+// reference. The world list is snapshotted on the server thread. The session and feature stores are
+// opened (after the HTTP lifecycle thread has loaded the config) and closed on the MapExecutor; HTTP
+// handlers see only the Minecraft-free ApiServices built on the lifecycle thread. All static fields
+// are volatile and read from any thread.
 public final class MapFabricMod implements ModInitializer {
   public static final String MOD_ID = "squaremap-pro";
   private static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
@@ -37,6 +43,11 @@ public final class MapFabricMod implements ModInitializer {
   private static volatile MapExecutor executor;
   private static volatile AuthServices auth;
   private static volatile HttpLifecycle http;
+  private static volatile StoreHolder<FeatureStore> features;
+  private static volatile LevelWorldDirectory worlds;
+
+  /** Feature database location relative to the world save root. */
+  public static final String FEATURES_DB = "data/squaremap-pro/map.sqlite";
 
   /** @return the shared map layer (null before mod init). ANY THREAD. */
   public static MapLayer mapLayer() {
@@ -70,6 +81,14 @@ public final class MapFabricMod implements ModInitializer {
         MapEditCommand.register(dispatcher, () -> auth, lifecycle::running));
 
     ServerLifecycleEvents.SERVER_STARTING.register(s -> server = s);
+    // Levels added/removed at runtime (dimension mods): re-snapshot every 100 ticks on the server
+    // thread (ServerTickEvents.EndTick#onEndTick(MinecraftServer)); publishes only on change.
+    ServerTickEvents.END_SERVER_TICK.register(s -> {
+      LevelWorldDirectory dir = worlds;
+      if (dir != null && s.getTickCount() % 100 == 0) {
+        dir.refresh(s);
+      }
+    });
     ServerLifecycleEvents.SERVER_STARTED.register(s -> {
       MapExecutor old = executor;
       if (old != null) {
@@ -81,15 +100,26 @@ public final class MapFabricMod implements ModInitializer {
       AuthServices services = new AuthServices(new TokenStore(clock), new FabricPermissionChecker(s),
           clock);
       auth = services;
+      StoreHolder<FeatureStore> featureStore = new StoreHolder<>("feature store");
+      features = featureStore;
+      LevelWorldDirectory worldDir = new LevelWorldDirectory(layer::available);
+      worldDir.refresh(s);
+      worlds = worldDir;
       // MinecraftServer.getWorldPath(LevelResource) only resolves a path (no I/O).
-      Path sessionsDb = s.getWorldPath(LevelResource.ROOT).resolve(AuthServices.SESSIONS_DB);
+      Path worldRoot = s.getWorldPath(LevelResource.ROOT);
+      Path sessionsDb = worldRoot.resolve(AuthServices.SESSIONS_DB);
+      Path mapDb = worldRoot.resolve(FEATURES_DB);
       lifecycle.onServerStarted(config -> {
-        // Lifecycle thread: hand the blocking SQLite open to the worker pool.
+        // Lifecycle thread: hand the blocking SQLite opens to the worker pool.
         try {
           ex.execute(() -> services.openSessions(sessionsDb, config.sessionTtl()));
+          ex.execute(() -> featureStore.open(() -> FeatureStore.open(mapDb, clock)));
         } catch (RejectedExecutionException e) {
-          LOGGER.warn("squaremap-pro session store not opened (server stopping)");
+          LOGGER.warn("squaremap-pro stores not opened (server stopping)");
         }
+        return new ApiServices(ex, services.tokens(), services::sessions, featureStore::get,
+            services.permissions(), worldDir, layer::tilesDir, MapFabricMod.class.getClassLoader(),
+            ApiServices.WEB_PREFIX, clock);
       });
       LOGGER.info("squaremap-pro services started");
     });
@@ -102,15 +132,25 @@ public final class MapFabricMod implements ModInitializer {
       }
       AuthServices services = auth;
       auth = null;
+      StoreHolder<FeatureStore> featureStore = features;
+      features = null;
+      LevelWorldDirectory worldDir = worlds;
+      if (worldDir != null) {
+        worldDir.clear();
+      }
       MapExecutor ex = executor;
       executor = null;
       if (ex != null) {
-        if (services != null) {
-          try {
-            ex.execute(services::close); // queued before shutdown, so it still runs
-          } catch (RejectedExecutionException e) {
-            LOGGER.warn("squaremap-pro session store close rejected", e);
+        try {
+          // queued before shutdown, so they still run
+          if (services != null) {
+            ex.execute(services::close);
           }
+          if (featureStore != null) {
+            ex.execute(featureStore::close);
+          }
+        } catch (RejectedExecutionException e) {
+          LOGGER.warn("squaremap-pro store close rejected", e);
         }
         ex.shutdown(); // does not wait
       }

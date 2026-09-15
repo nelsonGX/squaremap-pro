@@ -10,6 +10,12 @@ public interface MapLayer {
   /** @return whether a map backend is installed and its API is currently loaded */
   boolean available();
 
+  /**
+   * @return squaremap's tiles directory ({@code Squaremap.webDir().resolve("tiles")}), or null when
+   *     squaremap is not loaded. ANY THREAD.
+   */
+  java.nio.file.Path tilesDir();
+
   /** Releases map registrations. SERVER THREAD ONLY (SERVER_STOPPING). */
   void onServerStopping();
 }

@@ -10,6 +10,11 @@ public final class NoopMapLayer implements MapLayer {
   }
 
   @Override
+  public java.nio.file.Path tilesDir() {
+    return null;
+  }
+
+  @Override
   public void onServerStopping() {
   }
 }

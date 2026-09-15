@@ -45,7 +45,8 @@ generated sources (`./gradlew genSources`) and quote the signature used.
 `mappings(loom.officialMojangMappings())` — identical to squaremap v1.3.12's fabric build.
 Names are `ServerLevel`, `ServerPlayer`, `CommandSourceStack`, `ClickEvent`.
 Any Yarn name (`ServerWorld`, `ServerPlayerEntity`, `ServerCommandSource`, `class_1234`, `method_…`) in
-code, docs, or reports is a defect.
+code, docs, or reports is a defect. (Fabric API's own `ServerWorldEvents` is not a Yarn name — check with
+`grep -rnE "ServerWorld|ServerPlayerEntity|ServerCommandSource|class_[0-9]|method_[0-9]"`.)
 
 ## map-core purity rule
 
@@ -117,6 +118,9 @@ block centre (`x + 0.5`, `z + 0.5`) and convert to Leaflet with squaremap's CRS.
 | `station`  | exactly 1 vertex, on a vertex of `railwayId` | `railwayId`                                              |
 
 Errors: `{ "error": "validation", "details": [ { "field": "geometry", "message": "…" } ] }` with 400/401/403/404/409/422.
+409 body: `{ "error": "conflict", "current": Feature }`. 422: `{ "error": "railway_has_stations", "message": "…" }`.
+Also: 413 body too large (1 MiB), 503 `{ "error": "not_ready" | "timeout" | "busy" }`. Redeem failures:
+`/?authError=expired | forbidden | unavailable`.
 
 ### Route schema v2
 `GET /api/route?world=<id>&from=<x>,<z>&to=<x>,<z>[&modes=walk,road,rail]` (public)

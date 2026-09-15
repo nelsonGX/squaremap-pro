@@ -79,6 +79,18 @@ public final class SquaremapMapLayer implements MapLayer {
   }
 
   /**
+   * {@code @NonNull Path webDir()} (api v1.3.12 {@code Squaremap}); the implementation
+   * ({@code SquaremapApiProvider.webDir()} → {@code DirectoryProvider.webDirectory()}, common v1.3.12)
+   * returns an immutable {@code Path} field assigned during squaremap startup/config load, so reading
+   * it from HTTP threads only risks a stale value right after a squaremap reload.
+   */
+  @Override
+  public java.nio.file.Path tilesDir() {
+    Squaremap api = api();
+    return api == null ? null : api.webDir().resolve("tiles");
+  }
+
+  /**
    * Our provider for a world, registering it on first use (re-registers if replaced/stale). SERVER
    * THREAD ONLY.
    *

@@ -67,7 +67,7 @@ class MapHttpServerTest {
 
   @Test
   void unknownPathAndMethodAre404Json() throws Exception {
-    HttpResponse<String> r = get("/route?from=1,2&to=3,4", null);
+    HttpResponse<String> r = get("/api/route-v1?from=1,2&to=3,4", null);
     assertEquals(404, r.statusCode());
     assertJsonHeaders(r);
     assertTrue(body(r).has("error"));
@@ -82,6 +82,8 @@ class MapHttpServerTest {
   void corsHeaderOnlyForAllowedOrigin() throws Exception {
     HttpResponse<String> allowed = get("/api/health", ALLOWED);
     assertEquals(ALLOWED, allowed.headers().firstValue("Access-Control-Allow-Origin").orElse(null));
+    assertEquals("true",
+        allowed.headers().firstValue("Access-Control-Allow-Credentials").orElse(null));
 
     HttpResponse<String> other = get("/api/health", "http://evil.example");
     assertEquals(200, other.statusCode());
@@ -92,19 +94,28 @@ class MapHttpServerTest {
   }
 
   @Test
-  void preflightAllowsGetOnlyForAllowedOrigin() throws Exception {
+  void preflightOnlyForAllowedOriginAndApiMethods() throws Exception {
     HttpResponse<String> ok = client.send(HttpRequest.newBuilder(uri("/api/health"))
         .method("OPTIONS", HttpRequest.BodyPublishers.noBody())
         .header("Origin", ALLOWED).header("Access-Control-Request-Method", "GET").build(),
         HttpResponse.BodyHandlers.ofString());
     assertEquals(204, ok.statusCode());
-    assertEquals("GET", ok.headers().firstValue("Access-Control-Allow-Methods").orElse(null));
+    assertEquals("GET, POST, PUT, DELETE",
+        ok.headers().firstValue("Access-Control-Allow-Methods").orElse(null));
+    assertTrue(ok.headers().firstValue("Access-Control-Allow-Headers").orElse("")
+        .contains("X-Requested-With"));
 
-    HttpResponse<String> post = client.send(HttpRequest.newBuilder(uri("/api/health"))
+    HttpResponse<String> patch = client.send(HttpRequest.newBuilder(uri("/api/health"))
         .method("OPTIONS", HttpRequest.BodyPublishers.noBody())
-        .header("Origin", ALLOWED).header("Access-Control-Request-Method", "POST").build(),
+        .header("Origin", ALLOWED).header("Access-Control-Request-Method", "PATCH").build(),
         HttpResponse.BodyHandlers.ofString());
-    assertEquals(404, post.statusCode());
+    assertEquals(404, patch.statusCode());
+
+    HttpResponse<String> evil = client.send(HttpRequest.newBuilder(uri("/api/health"))
+        .method("OPTIONS", HttpRequest.BodyPublishers.noBody())
+        .header("Origin", "http://evil.example").header("Access-Control-Request-Method", "POST")
+        .build(), HttpResponse.BodyHandlers.ofString());
+    assertEquals(404, evil.statusCode());
   }
 
   @Test

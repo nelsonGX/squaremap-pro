@@ -122,6 +122,35 @@ class HttpConfigTest {
   }
 
   @Test
+  void routeSettings() {
+    HttpConfig d = HttpConfig.defaults();
+    assertEquals(dev.nelsongx.map.core.route.Speeds.defaults(), d.speeds());
+    assertEquals(Double.POSITIVE_INFINITY, d.maxDirectWalk());
+    assertEquals(List.of(), d.corsOrigins(), "CORS off by default (same-origin)");
+
+    Properties p = new Properties();
+    p.setProperty("route.speed.walk", "5");
+    p.setProperty("route.speed.rail", "20.5");
+    p.setProperty("route.maxDirectWalk", "300");
+    List<String> warnings = new ArrayList<>();
+    HttpConfig c = HttpConfig.parse(p, warnings::add);
+    assertEquals(5, c.speeds().walk());
+    assertEquals(20.5, c.speeds().rail());
+    assertEquals(d.speeds().main(), c.speeds().main());
+    assertEquals(300, c.maxDirectWalk());
+    assertTrue(warnings.isEmpty(), warnings.toString());
+
+    p.setProperty("route.speed.walk", "-1");
+    p.setProperty("route.speed.main", "NaN");
+    p.setProperty("route.maxDirectWalk", "far");
+    HttpConfig bad = HttpConfig.parse(p, warnings::add);
+    assertEquals(d.speeds().walk(), bad.speeds().walk());
+    assertEquals(d.speeds().main(), bad.speeds().main());
+    assertEquals(Double.POSITIVE_INFINITY, bad.maxDirectWalk());
+    assertEquals(3, warnings.size(), warnings.toString());
+  }
+
+  @Test
   void wildcardAndEmptyOrigins() {
     assertEquals(List.of("*"), HttpConfig.parseOrigins("*"));
     assertEquals(List.of(), HttpConfig.parseOrigins(""));

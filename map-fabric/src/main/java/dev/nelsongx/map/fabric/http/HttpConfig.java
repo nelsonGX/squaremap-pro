@@ -1,5 +1,6 @@
 package dev.nelsongx.map.fabric.http;
 
+import dev.nelsongx.map.core.route.Speeds;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.Writer;
@@ -33,11 +34,15 @@ import org.slf4j.LoggerFactory;
  * @param sessionTtlHours editor session lifetime in hours, 1..{@value #MAX_SESSION_TTL_HOURS}
  * @param cookieSecure whether the session cookie gets the {@code Secure} attribute (when not set in
  *     the file: whether {@code publicUrl} is https)
+ * @param speeds routing speeds in blocks per second ({@code route.speed.*})
+ * @param maxDirectWalk longest direct start-to-goal walk the router may return, in blocks
+ *     ({@code route.maxDirectWalk}; empty = unlimited)
  */
 // THREADING: immutable value, read from any thread. load() does file I/O and is called only on the
 // "squaremap-pro-http-lifecycle" thread (HttpLifecycle) or a test thread, never on the server thread.
 public record HttpConfig(boolean enabled, String bind, int port, List<String> corsOrigins,
-    long timeoutMs, int maxConcurrent, String publicUrl, int sessionTtlHours, boolean cookieSecure) {
+    long timeoutMs, int maxConcurrent, String publicUrl, int sessionTtlHours, boolean cookieSecure,
+    Speeds speeds, double maxDirectWalk) {
 
   /** Config file name inside the Fabric config directory. */
   public static final String FILE_NAME = "squaremap-pro.properties";
@@ -58,15 +63,30 @@ public record HttpConfig(boolean enabled, String bind, int port, List<String> co
   static final String K_PUBLIC_URL = "http.publicUrl";
   static final String K_SESSION_TTL = "auth.sessionTtlHours";
   static final String K_COOKIE_SECURE = "auth.cookieSecure";
+  static final String K_SPEED_WALK = "route.speed.walk";
+  static final String K_SPEED_PATH = "route.speed.path";
+  static final String K_SPEED_STREET = "route.speed.street";
+  static final String K_SPEED_MAIN = "route.speed.main";
+  static final String K_SPEED_HIGHWAY = "route.speed.highway";
+  static final String K_SPEED_RAIL = "route.speed.rail";
+  static final String K_MAX_DIRECT_WALK = "route.maxDirectWalk";
+
+  /** Upper bound for any {@code route.speed.*} value (blocks per second). */
+  static final double MAX_SPEED = 1000;
 
   /** Every key, in file order. */
   static final List<String> KEYS = List.of(K_ENABLED, K_BIND, K_PORT, K_CORS, K_TIMEOUT,
-      K_MAX_CONCURRENT, K_PUBLIC_URL, K_SESSION_TTL, K_COOKIE_SECURE);
+      K_MAX_CONCURRENT, K_PUBLIC_URL, K_SESSION_TTL, K_COOKIE_SECURE, K_SPEED_WALK, K_SPEED_PATH,
+      K_SPEED_STREET, K_SPEED_MAIN, K_SPEED_HIGHWAY, K_SPEED_RAIL, K_MAX_DIRECT_WALK);
 
   /** Validates and copies. */
   public HttpConfig {
     Objects.requireNonNull(bind, "bind");
     Objects.requireNonNull(publicUrl, "publicUrl");
+    Objects.requireNonNull(speeds, "speeds");
+    if (!(maxDirectWalk >= 0)) {
+      throw new IllegalArgumentException("maxDirectWalk must be >= 0: " + maxDirectWalk);
+    }
     corsOrigins = List.copyOf(corsOrigins);
     if (bind.isBlank()) {
       throw new IllegalArgumentException("bind must not be blank");
@@ -101,12 +121,15 @@ public record HttpConfig(boolean enabled, String bind, int port, List<String> co
   public HttpConfig(boolean enabled, String bind, int port, List<String> corsOrigins, long timeoutMs,
       int maxConcurrent) {
     this(enabled, bind, port, corsOrigins, timeoutMs, maxConcurrent, "", DEFAULT_SESSION_TTL_HOURS,
-        false);
+        false, Speeds.defaults(), Double.POSITIVE_INFINITY);
   }
 
-  /** @return the documented defaults */
+  /**
+   * @return the documented defaults. CORS is off by default: the web app is served same-origin by
+   *     the mod; {@code http.cors.origins} is only for a {@code next dev} server on another port.
+   */
   public static HttpConfig defaults() {
-    return new HttpConfig(true, "127.0.0.1", 8765, List.of("http://localhost:3000"), 10_000, 16);
+    return new HttpConfig(true, "127.0.0.1", 8765, List.of(), 10_000, 16);
   }
 
   /** @return {@link #sessionTtlHours()} as a duration */
@@ -211,8 +234,52 @@ public record HttpConfig(boolean enabled, String bind, int port, List<String> co
     boolean cookieSecure = parseBoolean(props, K_COOKIE_SECURE, publicUrl.startsWith("https://"),
         warn);
 
+    Speeds ds = d.speeds();
+    Speeds speeds = new Speeds(
+        parseSpeed(props, K_SPEED_WALK, ds.walk(), warn),
+        parseSpeed(props, K_SPEED_PATH, ds.path(), warn),
+        parseSpeed(props, K_SPEED_STREET, ds.street(), warn),
+        parseSpeed(props, K_SPEED_MAIN, ds.main(), warn),
+        parseSpeed(props, K_SPEED_HIGHWAY, ds.highway(), warn),
+        parseSpeed(props, K_SPEED_RAIL, ds.rail(), warn));
+
     return new HttpConfig(enabled, bind, port, origins, timeoutMs, maxConcurrent, publicUrl,
-        sessionTtlHours, cookieSecure);
+        sessionTtlHours, cookieSecure, speeds, parseMaxDirectWalk(props, warn));
+  }
+
+  private static double parseMaxDirectWalk(Properties props, Consumer<String> warn) {
+    String raw = trimmed(props, K_MAX_DIRECT_WALK);
+    if (raw == null || raw.isEmpty()) {
+      return Double.POSITIVE_INFINITY;
+    }
+    try {
+      double v = Double.parseDouble(raw);
+      if (Double.isFinite(v) && v >= 0) {
+        return v;
+      }
+    } catch (NumberFormatException ignored) {
+      // fall through
+    }
+    warn.accept(invalid(K_MAX_DIRECT_WALK, raw, "a number >= 0 or empty", "(unlimited)"));
+    return Double.POSITIVE_INFINITY;
+  }
+
+  private static double parseSpeed(Properties props, String key, double def,
+      Consumer<String> warn) {
+    String raw = trimmed(props, key);
+    if (raw == null) {
+      return def;
+    }
+    try {
+      double v = Double.parseDouble(raw);
+      if (Double.isFinite(v) && v > 0 && v <= MAX_SPEED) {
+        return v;
+      }
+    } catch (NumberFormatException ignored) {
+      // fall through
+    }
+    warn.accept(invalid(key, raw, "a number in (0, " + (int) MAX_SPEED + "]", def));
+    return def;
   }
 
   /** @return parsed origins, or null if any entry is invalid */
@@ -335,7 +402,8 @@ public record HttpConfig(boolean enabled, String bind, int port, List<String> co
       case K_BIND -> "# interface to bind; 127.0.0.1 = local only, 0.0.0.0 = all interfaces\n"
           + K_BIND + "=" + d.bind() + "\n";
       case K_PORT -> K_PORT + "=" + d.port() + "\n";
-      case K_CORS -> "# comma-separated allowed CORS origins; * allows any origin\n"
+      case K_CORS -> "# development only (next dev on another port): comma-separated CORS origins allowed to\n"
+          + "# call the API with credentials; * = any origin without credentials; empty = same-origin only\n"
           + K_CORS + "=" + String.join(",", d.corsOrigins()) + "\n";
       case K_TIMEOUT -> "# per-request timeout in milliseconds\n"
           + K_TIMEOUT + "=" + d.timeoutMs() + "\n";
@@ -349,6 +417,15 @@ public record HttpConfig(boolean enabled, String bind, int port, List<String> co
       case K_COOKIE_SECURE -> "# Secure attribute on the session cookie (true/false); empty = true iff "
           + K_PUBLIC_URL + " is https\n"
           + K_COOKIE_SECURE + "=\n";
+      case K_SPEED_WALK -> "# navigation speeds in blocks per second\n"
+          + K_SPEED_WALK + "=" + d.speeds().walk() + "\n";
+      case K_SPEED_PATH -> K_SPEED_PATH + "=" + d.speeds().path() + "\n";
+      case K_SPEED_STREET -> K_SPEED_STREET + "=" + d.speeds().street() + "\n";
+      case K_SPEED_MAIN -> K_SPEED_MAIN + "=" + d.speeds().main() + "\n";
+      case K_SPEED_HIGHWAY -> K_SPEED_HIGHWAY + "=" + d.speeds().highway() + "\n";
+      case K_SPEED_RAIL -> K_SPEED_RAIL + "=" + d.speeds().rail() + "\n";
+      case K_MAX_DIRECT_WALK -> "# longest walk-only route in blocks; empty = unlimited\n"
+          + K_MAX_DIRECT_WALK + "=\n";
       default -> throw new IllegalArgumentException(key);
     };
   }
