@@ -96,7 +96,15 @@ export interface MapViewProps {
 
 const ll = (p: LatLngLike) => L.latLng(p.lat, p.lng);
 
-/** fitBounds options keeping the target clear of the side panel / bottom sheet. */
+/**
+ * fitBounds options keeping the target clear of the side panel / bottom sheet.
+ *
+ * Views are moved with `fitBounds` (animated pan or zoom), never `flyTo`/`flyToBounds`: Leaflet 1.9.4's
+ * fly animation moves the pixel origin in `_move` but fires `zoom` only when the zoom changed since
+ * the previous frame. When the fly ends at the start zoom and its first frame is already the last
+ * (slow or throttled frames, headless virtual time), markers never get `zoom`/`viewreset` and stay at
+ * stale layer points while canvas renderers redraw on `moveend`, offsetting them by the pan distance.
+ */
 function fitOptions(map: L.Map, maxZoom: number): L.FitBoundsOptions {
   const size = map.getSize();
   const sheet = size.x < SHEET_BREAKPOINT_PX;
@@ -104,7 +112,8 @@ function fitOptions(map: L.Map, maxZoom: number): L.FitBoundsOptions {
     paddingTopLeft: sheet ? L.point(32, 32) : L.point(Math.min(420, size.x / 2), 48),
     paddingBottomRight: sheet ? L.point(32, Math.round(size.y * 0.5)) : L.point(48, 48),
     maxZoom,
-    duration: 0.8,
+    animate: true,
+    duration: 0.5,
   };
 }
 
@@ -425,7 +434,7 @@ export default function MapView(props: MapViewProps) {
       target.kind === "point"
         ? L.latLngBounds(ll(target.latLng), ll(target.latLng))
         : L.latLngBounds(ll(target.bounds[0]), ll(target.bounds[1]));
-    map.flyToBounds(bounds, fitOptions(map, zoom.max));
+    map.fitBounds(bounds, fitOptions(map, zoom.max));
     // Only a new request should fly; feature list refreshes must not move the map.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flyRequest]);
@@ -506,7 +515,7 @@ export default function MapView(props: MapViewProps) {
     const b = blockBounds(fitRequest.points);
     if (!b) return;
     const [sw, ne] = boundsToLatLngs(b, zoom.max);
-    map.flyToBounds(L.latLngBounds(ll(sw), ll(ne)), fitOptions(map, zoom.max));
+    map.fitBounds(L.latLngBounds(ll(sw), ll(ne)), fitOptions(map, zoom.max));
     // Only a new request should move the map.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitRequest]);
