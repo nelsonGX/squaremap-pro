@@ -8,5 +8,5 @@ pluginManagement {
 
 rootProject.name = "squaremap-pro"
 
-include("nav-core")
-include("nav-fabric")
+include("map-core")
+include("map-fabric")

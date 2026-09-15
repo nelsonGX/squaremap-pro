@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "squaremap-pro",
+  "version": "${version}",
+  "name": "squaremap-pro",
+  "description": "Map editor and road/rail navigation for squaremap's web map.",
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "dev.nelsongx.map.fabric.MapFabricMod"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.4",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*"
+  },
+  "suggests": {
+    "squaremap": ">=1.3.12"
+  }
+}

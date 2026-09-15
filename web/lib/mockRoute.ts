@@ -1,6 +1,6 @@
 /**
  * Pure mock of the mod's `GET /route` endpoint (schema v1, CLAUDE.md). Validation mirrors
- * `nav-fabric` `RouteRequestParser`: `from`/`to` exactly `<int>,<int>` (optional leading "-", digits
+ * the old route v1 request parser: `from`/`to` exactly `<int>,<int>` (optional leading "-", digits
  * only, no spaces), each coordinate within ±30,000,000; `world` optional, matching
  * `[a-z0-9_.-]+:[a-z0-9_./-]+`, default `minecraft:overworld`.
  *
@@ -173,7 +173,7 @@ export function mockRoute(
   }
   if (b.x === 15) {
     return payload("not_ready", world, {
-      error: `navigation graph for '${world}' is not built yet; run /navbuild`,
+      error: `route network for '${world}' is not ready yet`,
     });
   }
 

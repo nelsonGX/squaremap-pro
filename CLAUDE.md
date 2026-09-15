@@ -8,16 +8,13 @@ Task list and status: see `PLAN.md`.
 **Command surface: exactly one command, `/mapedit`** (gives a one-time editor login link).
 Viewing, editing and navigation all happen on the web. No other commands.
 
-> Modules are being renamed in PLAN task 1 (`nav-core`→`map-core`, `nav-fabric`→`map-fabric`). Until
-> that lands, read the old names as the new ones.
-
 ## Modules
 
 | Module       | What                                                                        | May depend on                          |
 |--------------|-----------------------------------------------------------------------------|----------------------------------------|
 | `map-core`   | Plain Java. Feature model + validation, SQLite `FeatureStore`, road/rail network, router. | JDK 21, sqlite-jdbc, JUnit 5 (test)    |
 | `map-fabric` | The mod: `/mapedit`, auth tokens/sessions, Javalin HTTP (API + static site + tiles), squaremap layer mirror | `map-core`, Minecraft, Fabric API, fabric-permissions-api, squaremap-api (compileOnly), Javalin |
-| `web`        | Next.js (static export) + Leaflet: viewer, editor, navigation panel         | next, react, leaflet @geoman-io/leaflet-geoman-free (approved) |
+| `web`        | Next.js (static export) + Leaflet: viewer, editor, navigation panel         | next, react, leaflet, @geoman-io/leaflet-geoman-free (approved) |
 
 Any new dependency not listed above → escalate to the user first.
 
