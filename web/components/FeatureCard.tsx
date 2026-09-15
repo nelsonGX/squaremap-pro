@@ -23,6 +23,8 @@ export interface FeatureCardProps {
   onOpen: (featureId: string) => void;
   /** Shown when the card was opened from search results. */
   onBack?: () => void;
+  /** "Directions to here". */
+  onDirections?: (feature: Feature) => void;
 }
 
 const fmtBlocks = (n: number) => `${Math.round(n).toLocaleString()} blocks`;
@@ -31,7 +33,7 @@ function Swatch({ colour }: { colour: string }) {
   return <span className={styles.swatch} style={{ background: colour }} aria-hidden="true" />;
 }
 
-export default function FeatureCard({ feature: f, allFeatures, onClose, onOpen, onBack }: FeatureCardProps) {
+export default function FeatureCard({ feature: f, allFeatures, onClose, onOpen, onBack, onDirections }: FeatureCardProps) {
   let accent: string;
   let classRow: { label: string; value: ReactNode } | null = null;
   const facts: { label: string; value: ReactNode }[] = [];
@@ -96,6 +98,14 @@ export default function FeatureCard({ feature: f, allFeatures, onClose, onOpen, 
           ×
         </button>
       </div>
+
+      {onDirections && (
+        <div className={styles.cardActions}>
+          <button type="button" className={styles.primaryButton} onClick={() => onDirections(f)}>
+            Directions to here
+          </button>
+        </div>
+      )}
 
       {f.type === "building" && f.props.description.trim() !== "" && (
         <p className={styles.cardDescription}>{f.props.description}</p>

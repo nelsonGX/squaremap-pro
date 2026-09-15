@@ -12,11 +12,12 @@ import * as L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "@geoman-io/leaflet-geoman-free";
 import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
-import type { Feature, FeatureType, XZ } from "../lib/api/types";
+import type { Feature, FeatureType, RouteResponse, XZ } from "../lib/api/types";
 import { SNAP_DISTANCE_PX, blocksPerPixel } from "../lib/editor/geometry";
-import { flyTarget, vertexLatLngs } from "../lib/features/geometry";
+import { blockBounds, boundsToLatLngs, flyTarget, vertexLatLngs } from "../lib/features/geometry";
+import { legLineStyle } from "../lib/navigation/legs";
 import { displayName, drawOrder, featureStyle, railwayColourMap, type FeatureStyle } from "../lib/features/styles";
-import { SQUAREMAP_TILE_SIZE, toLatLng, toPoint, type LatLngLike } from "../lib/squaremapCrs";
+import { SQUAREMAP_TILE_SIZE, toBlock, toLatLng, toPoint, type LatLngLike } from "../lib/squaremapCrs";
 import type { WorldSettingsZoom } from "../lib/squaremapSettings";
 import styles from "./MapView.module.css";
 
@@ -57,6 +58,21 @@ export interface MapEditing {
   onPlace: (position: { x: number; z: number }, blocksPerPixel: number) => void;
 }
 
+export interface MapNavigation {
+  from: XZ | null;
+  to: XZ | null;
+  /** Latest ok route to draw (null while none). */
+  route: RouteResponse | null;
+  highlightLeg: number | null;
+  /** Fit the view to these points when `nonce` changes. */
+  fitRequest: { points: XZ[]; nonce: number } | null;
+  /** Map click (anywhere, features included) -> block. */
+  onClick: (block: XZ) => void;
+  /** Endpoint marker dragged to a block. */
+  onDrag: (which: "from" | "to", block: XZ) => void;
+  onHoverLeg: (index: number | null) => void;
+}
+
 export interface MapViewProps {
   /** Tile URL template, or null while no world is selected. */
   tileTemplate: string | null;
@@ -74,9 +90,32 @@ export interface MapViewProps {
   onSelect: (featureId: string | null) => void;
   /** Non-null in edit mode. */
   editing: MapEditing | null;
+  /** Non-null in directions mode. */
+  navigation: MapNavigation | null;
 }
 
 const ll = (p: LatLngLike) => L.latLng(p.lat, p.lng);
+
+/** fitBounds options keeping the target clear of the side panel / bottom sheet. */
+function fitOptions(map: L.Map, maxZoom: number): L.FitBoundsOptions {
+  const size = map.getSize();
+  const sheet = size.x < SHEET_BREAKPOINT_PX;
+  return {
+    paddingTopLeft: sheet ? L.point(32, 32) : L.point(Math.min(420, size.x / 2), 48),
+    paddingBottomRight: sheet ? L.point(32, Math.round(size.y * 0.5)) : L.point(48, 48),
+    maxZoom,
+    duration: 0.8,
+  };
+}
+
+function endpointIcon(which: "from" | "to"): L.DivIcon {
+  return L.divIcon({
+    className: "",
+    html: `<div class="${styles.endpoint} ${which === "from" ? styles.endpointFrom : styles.endpointTo}">${which === "from" ? "A" : "B"}</div>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+  });
+}
 
 /** First ring / line of a geoman-drawn or edited path as LatLngs. */
 function pathLatLngs(layer: L.Layer): L.LatLng[] {
@@ -88,7 +127,7 @@ function pathLatLngs(layer: L.Layer): L.LatLng[] {
 }
 
 export default function MapView(props: MapViewProps) {
-  const { tileTemplate, worldKey, zoom, spawn, features, allFeatures, selectedId, flyRequest, onSelect, editing } = props;
+  const { tileTemplate, worldKey, zoom, spawn, features, allFeatures, selectedId, flyRequest, onSelect, editing, navigation } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileRef = useRef<L.TileLayer | null>(null);
@@ -101,14 +140,20 @@ export default function MapView(props: MapViewProps) {
   const maxZoomRef = useRef(zoom.max);
   const selectRef = useRef(onSelect);
   const editingRef = useRef(editing);
+  const navigationRef = useRef(navigation);
+  const routeLayerRef = useRef<L.LayerGroup | null>(null);
+  const routeHighlightRef = useRef<L.LayerGroup | null>(null);
+  const routeRendererRef = useRef<L.Renderer | null>(null);
+  const endpointLayerRef = useRef<L.LayerGroup | null>(null);
   /** The DOM event of the last feature click, so the map click it bubbles into is not "empty map". */
   const featureClickEventRef = useRef<Event | null>(null);
 
   useEffect(() => {
     selectRef.current = onSelect;
     editingRef.current = editing;
+    navigationRef.current = navigation;
     maxZoomRef.current = zoom.max;
-  }, [onSelect, editing, zoom.max]);
+  }, [onSelect, editing, navigation, zoom.max]);
 
   // Create the map once.
   useEffect(() => {
@@ -127,12 +172,19 @@ export default function MapView(props: MapViewProps) {
     // Selection halo sits below the features (overlayPane z-index 400); the draft above them.
     map.createPane("halo").style.zIndex = "390";
     map.createPane("draft").style.zIndex = "450";
+    map.createPane("route").style.zIndex = "420";
+    routeRendererRef.current = L.canvas({ pane: "route" });
     haloRendererRef.current = L.canvas({ pane: "halo" });
     draftRendererRef.current = L.svg({ pane: "draft" });
     map.on("click", (e: L.LeafletMouseEvent) => {
       const fromFeature = featureClickEventRef.current === e.originalEvent;
       featureClickEventRef.current = null;
       if (map.pm.globalDrawModeEnabled()) return;
+      const nav = navigationRef.current;
+      if (nav) {
+        nav.onClick(toBlock(e.latlng, maxZoomRef.current));
+        return;
+      }
       const ed = editingRef.current;
       if (ed?.draft?.type === "station") {
         ed.onPlace(toPoint(e.latlng, maxZoomRef.current), blocksPerPixel(map.getZoom(), maxZoomRef.current));
@@ -148,6 +200,9 @@ export default function MapView(props: MapViewProps) {
     haloLayerRef.current = L.layerGroup().addTo(map);
     featureLayerRef.current = L.layerGroup().addTo(map);
     draftLayerRef.current = L.layerGroup().addTo(map);
+    routeHighlightRef.current = L.layerGroup().addTo(map);
+    routeLayerRef.current = L.layerGroup().addTo(map);
+    endpointLayerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
     const ro = new ResizeObserver(() => map.invalidateSize());
     ro.observe(el);
@@ -219,6 +274,7 @@ export default function MapView(props: MapViewProps) {
           const map = mapRef.current;
           if (map?.pm.globalDrawModeEnabled()) return;
           if (editingRef.current?.draft?.type === "station") return; // map click handler places it
+          if (navigationRef.current) return; // map click handler picks the point
           selectRef.current(f.id);
         })
         .addTo(group);
@@ -365,22 +421,95 @@ export default function MapView(props: MapViewProps) {
     const f = allFeatures.find((x) => x.id === flyRequest.featureId);
     const target = f ? flyTarget(f, zoom.max) : null;
     if (!target) return;
-    const size = map.getSize();
-    const sheet = size.x < SHEET_BREAKPOINT_PX;
-    const options: L.FitBoundsOptions = {
-      paddingTopLeft: sheet ? L.point(32, 32) : L.point(Math.min(420, size.x / 2), 48),
-      paddingBottomRight: sheet ? L.point(32, Math.round(size.y * 0.5)) : L.point(48, 48),
-      maxZoom: zoom.max,
-      duration: 0.8,
-    };
     const bounds =
       target.kind === "point"
         ? L.latLngBounds(ll(target.latLng), ll(target.latLng))
         : L.latLngBounds(ll(target.bounds[0]), ll(target.bounds[1]));
-    map.flyToBounds(bounds, options);
+    map.flyToBounds(bounds, fitOptions(map, zoom.max));
     // Only a new request should fly; feature list refreshes must not move the map.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flyRequest]);
+
+  const route = navigation?.route ?? null;
+  const highlightLeg = navigation?.highlightLeg ?? null;
+  const navFrom = navigation?.from ?? null;
+  const navTo = navigation?.to ?? null;
+  const fitRequest = navigation?.fitRequest ?? null;
+
+  // Route legs, styled per mode; hovering a leg reports it.
+  useEffect(() => {
+    const group = routeLayerRef.current;
+    const renderer = routeRendererRef.current;
+    if (!group || !renderer) return;
+    group.clearLayers();
+    if (!route) return;
+    route.legs.forEach((leg, index) => {
+      const latlngs = vertexLatLngs(leg.points, zoom.max).map(ll);
+      const style = legLineStyle(leg, allFeatures);
+      const common = { renderer, snapIgnore: true, lineCap: "round", lineJoin: "round" } as const;
+      if (style.casing) {
+        L.polyline(latlngs, { ...common, color: style.casing.color, weight: style.casing.weight, opacity: 0.9, interactive: false }).addTo(group);
+      }
+      L.polyline(latlngs, { ...common, color: style.color, weight: style.weight, opacity: style.opacity, dashArray: style.dashArray })
+        .on("mouseover", () => navigationRef.current?.onHoverLeg(index))
+        .on("mouseout", () => navigationRef.current?.onHoverLeg(null))
+        .addTo(group);
+    });
+  }, [route, allFeatures, zoom.max]);
+
+  // Highlighted leg (under the route lines).
+  useEffect(() => {
+    const group = routeHighlightRef.current;
+    const renderer = routeRendererRef.current;
+    if (!group || !renderer) return;
+    group.clearLayers();
+    const leg = highlightLeg !== null ? route?.legs[highlightLeg] : undefined;
+    if (!leg) return;
+    L.polyline(vertexLatLngs(leg.points, zoom.max).map(ll), {
+      renderer,
+      color: "#fbbc04",
+      weight: 18,
+      opacity: 0.55,
+      lineCap: "round",
+      lineJoin: "round",
+      interactive: false,
+      snapIgnore: true,
+    }).addTo(group);
+  }, [route, highlightLeg, zoom.max]);
+
+  // Draggable A / B markers.
+  useEffect(() => {
+    const group = endpointLayerRef.current;
+    if (!group) return;
+    group.clearLayers();
+    const add = (which: "from" | "to", p: XZ | null) => {
+      if (!p) return;
+      const marker = L.marker(ll(vertexLatLngs([p], zoom.max)[0]!), {
+        icon: endpointIcon(which),
+        draggable: true,
+        keyboard: false,
+        title: which === "from" ? `Start ${p.x}, ${p.z}` : `Destination ${p.x}, ${p.z}`,
+        zIndexOffset: 1000,
+        snapIgnore: true,
+      });
+      marker.on("dragend", () => navigationRef.current?.onDrag(which, toBlock(marker.getLatLng(), maxZoomRef.current)));
+      marker.addTo(group);
+    };
+    add("from", navFrom);
+    add("to", navTo);
+  }, [navFrom, navTo, zoom.max]);
+
+  // Fit to a route or leg on request.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !fitRequest) return;
+    const b = blockBounds(fitRequest.points);
+    if (!b) return;
+    const [sw, ne] = boundsToLatLngs(b, zoom.max);
+    map.flyToBounds(L.latLngBounds(ll(sw), ll(ne)), fitOptions(map, zoom.max));
+    // Only a new request should move the map.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitRequest]);
 
   return (
     <div

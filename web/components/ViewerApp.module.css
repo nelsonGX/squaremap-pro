@@ -411,22 +411,6 @@
   white-space: nowrap;
 }
 
-.editToggle {
-  font: inherit;
-  font-size: 13px;
-  padding: 5px 12px;
-  border-radius: 16px;
-  border: 1px solid #1a73e8;
-  background: #fff;
-  color: #1a73e8;
-  cursor: pointer;
-}
-
-.editToggle[aria-pressed="true"] {
-  background: #1a73e8;
-  color: #fff;
-}
-
 .editor {
   display: flex;
   flex-direction: column;
@@ -636,6 +620,238 @@
 
 .pushRight {
   margin-left: auto;
+}
+
+/* ---- Mode tabs ---- */
+
+.tabs {
+  display: flex;
+  border-bottom: 1px solid #e8eaed;
+  padding: 0 8px;
+}
+
+.tab {
+  flex: 1;
+  font: inherit;
+  font-size: 14px;
+  padding: 10px 4px 8px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: #5f6368;
+  cursor: pointer;
+}
+
+.tab[aria-selected="true"] {
+  color: #1a73e8;
+  border-bottom-color: #1a73e8;
+  font-weight: 600;
+}
+
+.cardActions {
+  padding: 4px 16px 8px;
+}
+
+.iconButton[aria-pressed="true"] {
+  background: #e8f0fe;
+  color: #1a73e8;
+}
+
+/* ---- Directions ---- */
+
+.directions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.navFields {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.navFieldStack {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.navField {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.navDot {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 8px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
+
+.navDotFrom {
+  background: #188038;
+}
+
+.navDotTo {
+  background: #d93025;
+}
+
+.navInputWrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.navInput {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 10px;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.navInput:focus {
+  outline: none;
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 1px #1a73e8;
+}
+
+.navInput[aria-invalid="true"] {
+  border-color: #d93025;
+}
+
+.suggestions {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  top: calc(100% + 2px);
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(60, 64, 67, 0.3);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.suggestions .result {
+  padding: 8px 12px;
+}
+
+.routeSummary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 10px 0 8px;
+  border-top: 1px solid #e8eaed;
+}
+
+.routeDuration {
+  font-size: 24px;
+  color: #188038;
+}
+
+.routeDistance {
+  font-size: 15px;
+  color: #5f6368;
+}
+
+.routeVia {
+  flex-basis: 100%;
+  font-size: 13px;
+  color: #5f6368;
+}
+
+.legs {
+  list-style: none;
+  margin: 0 -12px;
+  padding: 0;
+}
+
+.leg {
+  display: flex;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #f1f3f4;
+}
+
+.legHighlighted {
+  background: #fef7e0;
+}
+
+.legIcon {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 2px solid;
+  border-radius: 50%;
+  box-sizing: border-box;
+  background: #fff;
+}
+
+.legBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.legTitle {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  color: #202124;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.legTitle:hover {
+  text-decoration: underline;
+}
+
+.legDetail,
+.legMeta {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: #5f6368;
+}
+
+.legBody .linkButton {
+  padding: 4px 0 0;
+  font-size: 13px;
+}
+
+.steps {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.steps li {
+  padding: 3px 0;
+}
+
+.steps li span + span {
+  margin-left: 6px;
 }
 
 /* ---- Bottom sheet on narrow screens (keep in sync with SHEET_BREAKPOINT_PX in MapView.tsx) ---- */

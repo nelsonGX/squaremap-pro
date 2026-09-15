@@ -7,11 +7,13 @@ import {
   parseAuthMe,
   parseFeature,
   parseFeatureList,
+  parseRouteResponse,
   parseWorlds,
   type Parsed,
   type ParsedFeatureList,
 } from "./guards";
-import type { AuthMe, Feature, FeatureInput, FeatureUpdate, ValidationDetail, World } from "./types";
+import { httpStatusForRoute, routePath } from "../navigation/legs";
+import type { AuthMe, Feature, FeatureInput, FeatureUpdate, RouteRequest, RouteResponse, ValidationDetail, World } from "./types";
 
 export interface ApiClient {
   /** `GET /api/worlds` */
@@ -28,6 +30,11 @@ export interface ApiClient {
   updateFeature(worldId: string, id: string, update: FeatureUpdate): Promise<Feature>;
   /** `DELETE /api/worlds/{world}/features/{id}?revision=` → 204 · 409 stale · 422 railway has stations */
   deleteFeature(worldId: string, id: string, revision: number): Promise<void>;
+  /**
+   * `GET /api/route` (schema v2). Resolves with the route body for every documented status
+   * (`ok`/`no_path` 200, `invalid_request` 400, `world_not_found` 404); rejects otherwise.
+   */
+  route(req: RouteRequest, signal?: AbortSignal): Promise<RouteResponse>;
 }
 
 export type ApiErrorKind = "http" | "network" | "invalid_response";
@@ -120,6 +127,36 @@ export class HttpApiClient implements ApiClient {
 
   deleteFeature(worldId: string, id: string, revision: number): Promise<void> {
     return this.request("DELETE", `${featurePath(worldId, id)}?revision=${revision}`, undefined, undefined, null);
+  }
+
+  async route(req: RouteRequest, signal?: AbortSignal): Promise<RouteResponse> {
+    const path = routePath(req);
+    let res: Response;
+    try {
+      res = await this.fetchImpl(joinUrl(this.base, path), buildRequestInit("GET", undefined, signal));
+    } catch (e) {
+      if (signal?.aborted) throw e;
+      throw new ApiError("network", `Could not reach the server (${e instanceof Error ? e.message : String(e)})`);
+    }
+    let json: unknown;
+    try {
+      json = await res.json();
+    } catch (e) {
+      if (signal?.aborted) throw e;
+      throw new ApiError(res.ok ? "invalid_response" : "http", `GET /api/route: HTTP ${res.status}, response is not JSON`, res.status);
+    }
+    const parsed = parseRouteResponse(json);
+    if (!parsed.ok) {
+      if (!res.ok) {
+        const err = parseApiErrorBody(json);
+        throw new ApiError("http", `GET /api/route failed (HTTP ${res.status}${err ? `: ${err.error}` : ""})`, res.status, err?.error ?? null, err?.details ?? []);
+      }
+      throw new ApiError("invalid_response", `GET /api/route: ${parsed.problem}`, res.status);
+    }
+    if (httpStatusForRoute(parsed.value.status) !== res.status) {
+      throw new ApiError("invalid_response", `GET /api/route: HTTP ${res.status} does not match status '${parsed.value.status}'`, res.status);
+    }
+    return parsed.value;
   }
 
   /** Shared request path: network errors, non-2xx (with error body), JSON + shape validation. */

@@ -4,9 +4,10 @@
  * guards as HTTP responses, so fixture data cannot drift from the schema unnoticed.
  */
 import { validateInput } from "../editor/validate";
+import { fixtureRoute } from "./fixtureRoute";
 import { ApiError, type ApiClient } from "./client";
 import { parseAuthMe, parseFeature, parseFeatureList, parseWorlds, type ParsedFeatureList } from "./guards";
-import type { AuthMe, Feature, FeatureInput, FeatureUpdate, World } from "./types";
+import type { AuthMe, Feature, FeatureInput, FeatureUpdate, RouteRequest, RouteResponse, World } from "./types";
 
 /** The fixture's logged-in editor. */
 export const FIXTURE_PLAYER = { uuid: "0f2c7a4e-5d0b-4c34-9a57-2f1f6c8e9b11", name: "FixtureEditor" };
@@ -219,6 +220,12 @@ export class FixtureApiClient implements ApiClient {
 
   me(signal?: AbortSignal): Promise<AuthMe> {
     return this.respond(signal, () => unwrap(parseAuthMe(deepCopy(this.auth))));
+  }
+
+  route(req: RouteRequest, signal?: AbortSignal): Promise<RouteResponse> {
+    return this.respond(signal, () =>
+      deepCopy(fixtureRoute(req, this.features.has(req.world), this.features.get(req.world) ?? [])),
+    );
   }
 
   logout(): Promise<void> {

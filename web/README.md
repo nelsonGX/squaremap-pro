@@ -37,6 +37,8 @@ only works from the same origin.
 | `/tiles/<web name>/settings.json` | same (zoom `max/def/extra`, `spawn`; defaults 3/3/2 if missing) |
 | `GET /api/worlds`, `GET /api/worlds/{world}/features`, `GET /api/auth/me` | mod API (world id kept readable, e.g. `/api/worlds/minecraft:overworld/features`) |
 | `POST /api/auth/logout`, `POST/PUT/DELETE /api/worlds/{world}/features[/{id}]` | mod API; the web sends `X-Requested-With: squaremap-pro` and same-origin cookies. Feature id is percent-encoded. A 409 body may include `"current": Feature` (used for "Changed by X at T"; otherwise the list is refetched). |
+| `GET /api/route?world=&from=x,z&to=x,z[&modes=walk,road,rail]` | route schema v2; the web expects the body on 200 (`ok`/`no_path`), 400 (`invalid_request`) and 404 (`world_not_found`). `modes` is omitted when roads and railways are both enabled. |
+| `/?world=<id>&from=x,z&to=x,z` | shareable directions state, restored on load and kept current with `history.replaceState` |
 | `/?edit=1`, `/?authError=expired` | redirect targets of `/api/auth/redeem` (the page strips them with `history.replaceState`) |
 
 ## Layout
@@ -47,6 +49,8 @@ only works from the same origin.
 - `lib/api/fixtures.ts` — `FixtureApiClient` + fixture data (validated by tests).
 - `lib/features/` — styles, search, geometry → LatLng / bounds, layer visibility.
 - `lib/editor/` — rounding + vertex snapping + station placement (`geometry.ts`), client mirror of map-core `FeatureValidator` (`validate.ts`), draft reducer + request building (`draft.ts`), error mapping (`errors.ts`), `?edit`/`?authError` parsing (`authQuery.ts`).
+- `lib/navigation/` — coordinate parsing and feature → routing point (`coords.ts`), duration/distance formatting (`format.ts`), URL state (`urlState.ts`), route request helpers and leg presentation/styles (`legs.ts`). `lib/api/fixtureRoute.ts` builds canned v2 routes from fixture features (special inputs: unknown world → `world_not_found`, |coord| > 30,000,000 → `invalid_request`, `to=13,13` → `no_path`).
+- `components/DirectionsPanel.tsx` — from/to fields (coordinates, place search, pick on map), swap, mode toggles, summary, legs with turn-by-turn.
 - `components/EditorPanel.tsx` — add toolbar, properties form, save/cancel/delete, conflict prompt. Geometry editing uses leaflet-geoman in `MapView.tsx` (opt-in mode: only the map and the draft layer get geoman handlers).
 - `lib/squaremapCrs.ts`, `lib/squaremapSettings.ts` — squaremap v1.3.12 CRS and settings.
 - `lib/directions.ts` — turn-by-turn from `{x,z}` points (for the Task 9 navigation panel).

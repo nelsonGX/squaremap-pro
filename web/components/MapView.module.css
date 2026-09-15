@@ -14,3 +14,24 @@
 .placing :global(.leaflet-interactive) {
   cursor: crosshair;
 }
+
+.endpoint {
+  box-sizing: border-box;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font: 700 12px/20px system-ui, sans-serif;
+  text-align: center;
+  cursor: grab;
+}
+
+.endpointFrom {
+  background: #188038;
+}
+
+.endpointTo {
+  background: #d93025;
+}
