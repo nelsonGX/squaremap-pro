@@ -114,8 +114,10 @@ describe("parseApiErrorBody", () => {
   it("reads error and valid details only", () => {
     expect(
       parseApiErrorBody({ error: "validation", details: [{ field: "geometry", message: "too short" }, { field: 1 }] }),
-    ).toEqual({ error: "validation", details: [{ field: "geometry", message: "too short" }] });
-    expect(parseApiErrorBody({ error: "conflict" })).toEqual({ error: "conflict", details: [] });
+    ).toEqual({ error: "validation", details: [{ field: "geometry", message: "too short" }], current: null });
+    expect(parseApiErrorBody({ error: "conflict" })).toEqual({ error: "conflict", details: [], current: null });
+    expect(parseApiErrorBody({ error: "conflict", current: road })?.current?.id).toBe("f_1");
+    expect(parseApiErrorBody({ error: "conflict", current: { id: 1 } })?.current).toBeNull();
     expect(parseApiErrorBody("nope")).toBeNull();
   });
 });

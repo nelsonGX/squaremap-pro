@@ -21,3 +21,6 @@ export const TILES_BASE: string = cleanBase(process.env.NEXT_PUBLIC_TILES_BASE) 
 
 /** `1` = use the in-memory fixture API instead of HTTP (dev without a server). */
 export const USE_FIXTURES: boolean = process.env.NEXT_PUBLIC_USE_FIXTURES === "1";
+
+/** Fixture mode only: `0` = the fixture API reports "logged out" (default: logged in as an editor). */
+export const FIXTURE_LOGGED_IN_ENABLED: boolean = process.env.NEXT_PUBLIC_FIXTURE_LOGGED_IN !== "0";

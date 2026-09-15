@@ -9,3 +9,8 @@
   background-size: 32px 32px;
   outline: none;
 }
+
+.placing,
+.placing :global(.leaflet-interactive) {
+  cursor: crosshair;
+}

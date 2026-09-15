@@ -3,9 +3,13 @@
  * Not an App Router route (static export forbids those). Responses are passed through the same
  * guards as HTTP responses, so fixture data cannot drift from the schema unnoticed.
  */
+import { validateInput } from "../editor/validate";
 import { ApiError, type ApiClient } from "./client";
-import { parseAuthMe, parseFeatureList, parseWorlds, type ParsedFeatureList } from "./guards";
-import type { AuthMe, World } from "./types";
+import { parseAuthMe, parseFeature, parseFeatureList, parseWorlds, type ParsedFeatureList } from "./guards";
+import type { AuthMe, Feature, FeatureInput, FeatureUpdate, World } from "./types";
+
+/** The fixture's logged-in editor. */
+export const FIXTURE_PLAYER = { uuid: "0f2c7a4e-5d0b-4c34-9a57-2f1f6c8e9b11", name: "FixtureEditor" };
 
 const STEVE = { uuid: "069a79f4-44e9-4726-a5be-fca90e38aaf5", name: "Steve" };
 const ALEX = { uuid: "ec70bcaf-702f-4bb8-b48d-276fa52a780c", name: "Alex" };
@@ -141,26 +145,45 @@ export const FIXTURE_FEATURES: Record<string, unknown[]> = {
 };
 
 export interface FixtureOptions {
+  /** Default: logged in as {@link FIXTURE_PLAYER} with edit permission. */
   auth?: AuthMe;
   /** Artificial latency in ms (default 0). */
   delayMs?: number;
+  /** Clock for createdAt/updatedAt (default: now). */
+  now?: () => Date;
 }
+
+export const FIXTURE_LOGGED_IN: AuthMe = { loggedIn: true, ...FIXTURE_PLAYER, canEdit: true };
 
 function deepCopy<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
 
+/**
+ * In-memory API. Writes mirror the server rules that are cheap to mirror: session + permission
+ * (401/403), client validation rules incl. station-on-railway-vertex (400 with details), stale
+ * revision (409 with `current`), unknown feature (404), type change (400), deleting a railway that
+ * still has stations (422).
+ */
 export class FixtureApiClient implements ApiClient {
-  private readonly worlds: unknown[];
-  private readonly features: Record<string, unknown[]>;
-  private readonly auth: AuthMe;
+  private readonly worlds: World[];
+  private readonly features: Map<string, Feature[]>;
+  private auth: AuthMe;
   private readonly delayMs: number;
+  private readonly now: () => Date;
+  private nextId = 1;
 
   constructor(options: FixtureOptions = {}) {
-    this.worlds = deepCopy(FIXTURE_WORLDS);
-    this.features = deepCopy(FIXTURE_FEATURES);
-    this.auth = options.auth ?? { loggedIn: false };
+    this.worlds = unwrap(parseWorlds(deepCopy(FIXTURE_WORLDS)));
+    this.features = new Map(
+      this.worlds.map((w) => [
+        w.id,
+        unwrap(parseFeatureList({ schemaVersion: 1, features: deepCopy(FIXTURE_FEATURES[w.id] ?? []) })).features,
+      ]),
+    );
+    this.auth = options.auth ?? FIXTURE_LOGGED_IN;
     this.delayMs = options.delayMs ?? 0;
+    this.now = options.now ?? (() => new Date());
   }
 
   private async respond<T>(signal: AbortSignal | undefined, make: () => T): Promise<T> {
@@ -169,22 +192,117 @@ export class FixtureApiClient implements ApiClient {
     return make();
   }
 
+  private list(worldId: string): Feature[] {
+    const list = this.features.get(worldId);
+    if (!list) throw httpError(404, "world_not_found", `Unknown world ${worldId}`);
+    return list;
+  }
+
+  private requireEditor(): { uuid: string; name: string } {
+    if (!this.auth.loggedIn) throw httpError(401, "unauthorized", "Not logged in");
+    if (!this.auth.canEdit) throw httpError(403, "forbidden", "No edit permission");
+    return { uuid: this.auth.uuid, name: this.auth.name };
+  }
+
+  private validate(list: Feature[], input: FeatureInput): void {
+    const details = validateInput(input, (id) => list.find((f) => f.id === id && f.type === "railway")?.geometry);
+    if (details.length > 0) throw httpError(400, "validation", "Validation failed", details);
+  }
+
   listWorlds(signal?: AbortSignal): Promise<World[]> {
-    return this.respond(signal, () => unwrap(parseWorlds(deepCopy(this.worlds))));
+    return this.respond(signal, () => deepCopy(this.worlds));
   }
 
   listFeatures(worldId: string, signal?: AbortSignal): Promise<ParsedFeatureList> {
-    return this.respond(signal, () => {
-      if (!this.worlds.some((w) => (w as World).id === worldId)) {
-        throw new ApiError("http", `Unknown world ${worldId} (HTTP 404)`, 404, "world_not_found");
-      }
-      return unwrap(parseFeatureList({ schemaVersion: 1, features: deepCopy(this.features[worldId] ?? []) }));
-    });
+    return this.respond(signal, () => ({ schemaVersion: 1 as const, features: deepCopy(this.list(worldId)), skipped: [] }));
   }
 
   me(signal?: AbortSignal): Promise<AuthMe> {
     return this.respond(signal, () => unwrap(parseAuthMe(deepCopy(this.auth))));
   }
+
+  logout(): Promise<void> {
+    return this.respond(undefined, () => {
+      this.auth = { loggedIn: false };
+    });
+  }
+
+  createFeature(worldId: string, input: FeatureInput): Promise<Feature> {
+    return this.respond(undefined, () => {
+      const who = this.requireEditor();
+      const list = this.list(worldId);
+      const clean = normaliseInput(input);
+      this.validate(list, clean);
+      const at = this.now().toISOString();
+      const feature = unwrap(
+        parseFeature({ ...clean, id: `f_fixture_${this.nextId++}`, revision: 1, createdBy: who, createdAt: at, updatedBy: who, updatedAt: at }),
+      );
+      list.push(feature);
+      return deepCopy(feature);
+    });
+  }
+
+  updateFeature(worldId: string, id: string, update: FeatureUpdate): Promise<Feature> {
+    return this.respond(undefined, () => {
+      const who = this.requireEditor();
+      const list = this.list(worldId);
+      const index = list.findIndex((f) => f.id === id);
+      const existing = list[index];
+      if (!existing) throw httpError(404, "not_found", `Feature ${id} not found`);
+      if (update.revision !== existing.revision) {
+        throw httpError(409, "conflict", "Stale revision", [], deepCopy(existing));
+      }
+      if (update.type !== existing.type) {
+        throw httpError(400, "validation", "Validation failed", [{ field: "type", message: "type cannot change" }]);
+      }
+      const { revision: _revision, ...rest } = update;
+      void _revision;
+      const clean = normaliseInput(rest);
+      this.validate(list, clean);
+      const feature = unwrap(
+        parseFeature({
+          ...clean,
+          id,
+          revision: existing.revision + 1,
+          createdBy: existing.createdBy,
+          createdAt: existing.createdAt,
+          updatedBy: who,
+          updatedAt: this.now().toISOString(),
+        }),
+      );
+      list[index] = feature;
+      return deepCopy(feature);
+    });
+  }
+
+  deleteFeature(worldId: string, id: string, revision: number): Promise<void> {
+    return this.respond(undefined, () => {
+      this.requireEditor();
+      const list = this.list(worldId);
+      const index = list.findIndex((f) => f.id === id);
+      const existing = list[index];
+      if (!existing) throw httpError(404, "not_found", `Feature ${id} not found`);
+      if (revision !== existing.revision) throw httpError(409, "conflict", "Stale revision", [], deepCopy(existing));
+      if (existing.type === "railway" && list.some((f) => f.type === "station" && f.props.railwayId === id)) {
+        throw httpError(422, "railway_has_stations", "Delete the railway's stations first");
+      }
+      list.splice(index, 1);
+    });
+  }
+}
+
+function normaliseInput(input: FeatureInput): FeatureInput {
+  return { ...deepCopy(input), name: input.name.trim() } as FeatureInput;
+}
+
+function httpError(
+  status: number,
+  code: string,
+  text: string,
+  details: ApiError["details"] = [],
+  current: Feature | null = null,
+): ApiError {
+  return new ApiError("http", `${text} (HTTP ${status}: ${code})`, status, code, details, current);
 }
 
 function unwrap<T>(r: { ok: true; value: T } | { ok: false; problem: string }): T {

@@ -150,8 +150,11 @@ export function parseFeatureList(v: unknown): Parsed<ParsedFeatureList> {
   return ok({ schemaVersion: 1, features, skipped });
 }
 
-/** Lenient: returns null when the body is not an `{error, details?}` object. */
-export function parseApiErrorBody(v: unknown): ApiErrorBody | null {
+/**
+ * Lenient: returns null when the body is not an `{error, details?}` object. An optional `current`
+ * feature (sent with 409 Conflict, when the server includes it) is parsed too.
+ */
+export function parseApiErrorBody(v: unknown): (ApiErrorBody & { current: Feature | null }) | null {
   if (!isObj(v) || !isStr(v.error)) return null;
   const details: ValidationDetail[] = [];
   if (Array.isArray(v.details)) {
@@ -159,7 +162,8 @@ export function parseApiErrorBody(v: unknown): ApiErrorBody | null {
       if (isObj(d) && isStr(d.field) && isStr(d.message)) details.push({ field: d.field, message: d.message });
     }
   }
-  return { error: v.error, details };
+  const current = v.current === undefined || v.current === null ? null : parseFeature(v.current);
+  return { error: v.error, details, current: current && current.ok ? current.value : null };
 }
 
 function sameXZ(a: XZ, b: XZ): boolean {

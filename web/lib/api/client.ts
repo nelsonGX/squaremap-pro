@@ -2,8 +2,16 @@
  * API client interface + HTTP implementation. Every method resolves with a validated value or
  * rejects with an {@link ApiError}. Aborts reject with the fetch AbortError unchanged.
  */
-import { parseApiErrorBody, parseAuthMe, parseFeatureList, parseWorlds, type Parsed, type ParsedFeatureList } from "./guards";
-import type { AuthMe, ValidationDetail, World } from "./types";
+import {
+  parseApiErrorBody,
+  parseAuthMe,
+  parseFeature,
+  parseFeatureList,
+  parseWorlds,
+  type Parsed,
+  type ParsedFeatureList,
+} from "./guards";
+import type { AuthMe, Feature, FeatureInput, FeatureUpdate, ValidationDetail, World } from "./types";
 
 export interface ApiClient {
   /** `GET /api/worlds` */
@@ -12,6 +20,14 @@ export interface ApiClient {
   listFeatures(worldId: string, signal?: AbortSignal): Promise<ParsedFeatureList>;
   /** `GET /api/auth/me` */
   me(signal?: AbortSignal): Promise<AuthMe>;
+  /** `POST /api/auth/logout` → 204 */
+  logout(): Promise<void>;
+  /** `POST /api/worlds/{world}/features` → 201 Feature */
+  createFeature(worldId: string, input: FeatureInput): Promise<Feature>;
+  /** `PUT /api/worlds/{world}/features/{id}` → 200 Feature · 409 stale revision */
+  updateFeature(worldId: string, id: string, update: FeatureUpdate): Promise<Feature>;
+  /** `DELETE /api/worlds/{world}/features/{id}?revision=` → 204 · 409 stale · 422 railway has stations */
+  deleteFeature(worldId: string, id: string, revision: number): Promise<void>;
 }
 
 export type ApiErrorKind = "http" | "network" | "invalid_response";
@@ -25,6 +41,8 @@ export class ApiError extends Error {
     /** Server `error` code (e.g. `validation`) when the body had one. */
     readonly code: string | null = null,
     readonly details: ValidationDetail[] = [],
+    /** Latest stored feature, when a 409 body carries one. */
+    readonly current: Feature | null = null,
   ) {
     super(message);
     this.name = "ApiError";
@@ -41,6 +59,10 @@ export const CSRF_VALUE = "squaremap-pro";
  */
 export function worldSegment(worldId: string): string {
   return encodeURIComponent(worldId).replace(/%3A/gi, ":");
+}
+
+export function featurePath(worldId: string, id: string): string {
+  return `/api/worlds/${worldSegment(worldId)}/features/${encodeURIComponent(id)}`;
 }
 
 export function joinUrl(base: string, path: string): string {
@@ -84,6 +106,22 @@ export class HttpApiClient implements ApiClient {
     return this.request("GET", "/api/auth/me", undefined, signal, parseAuthMe);
   }
 
+  logout(): Promise<void> {
+    return this.request("POST", "/api/auth/logout", undefined, undefined, null);
+  }
+
+  createFeature(worldId: string, input: FeatureInput): Promise<Feature> {
+    return this.request("POST", `/api/worlds/${worldSegment(worldId)}/features`, input, undefined, parseFeature);
+  }
+
+  updateFeature(worldId: string, id: string, update: FeatureUpdate): Promise<Feature> {
+    return this.request("PUT", featurePath(worldId, id), update, undefined, parseFeature);
+  }
+
+  deleteFeature(worldId: string, id: string, revision: number): Promise<void> {
+    return this.request("DELETE", `${featurePath(worldId, id)}?revision=${revision}`, undefined, undefined, null);
+  }
+
   /** Shared request path: network errors, non-2xx (with error body), JSON + shape validation. */
   protected async request<T>(
     method: string,
@@ -114,7 +152,7 @@ export class HttpApiClient implements ApiClient {
       const message = err
         ? `${method} ${path} failed (HTTP ${res.status}: ${err.error})`
         : `${method} ${path} failed (HTTP ${res.status})`;
-      throw new ApiError("http", message, res.status, err?.error ?? null, err?.details ?? []);
+      throw new ApiError("http", message, res.status, err?.error ?? null, err?.details ?? [], err?.current ?? null);
     }
     if (parse === null) return undefined as T;
     const parsed = parse(json);
