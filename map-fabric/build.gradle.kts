@@ -14,6 +14,12 @@ dependencies {
 
   compileOnly("xyz.jpenilla:squaremap-api:1.3.12")
 
+  // Permission checks (`squaremappro.edit`). 0.6.1 is the last release for Minecraft 1.21.11
+  // (its fabric.mod.json: "minecraft": ">=1.21.11"; 0.7.0 requires ">=26.1"). Maven Central,
+  // https://github.com/lucko/fabric-permissions-api/releases/tag/v0.6.1. Tiny, so nested.
+  modImplementation("me.lucko:fabric-permissions-api:0.6.1")
+  include("me.lucko:fabric-permissions-api:0.6.1")
+
   implementation(project(":map-core"))
   include(project(":map-core"))
   // map-core's FeatureStore needs the SQLite JDBC driver at runtime; nest it in the mod jar.

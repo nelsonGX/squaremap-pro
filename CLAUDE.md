@@ -33,7 +33,7 @@ from `gradle/libs.versions.toml` at commit `f3e6f72` (last 1.21.11 commit before
 | Loom               | **1.13** line (`fabric-loom` 1.13.6)       | build-logic                              |
 | squaremap-api      | **`xyz.jpenilla:squaremap-api:1.3.12`**, `compileOnly` | `api/` diff v1.3.12..master is empty |
 | squaremap (runtime)| squaremap-fabric **1.3.12** for MC 1.21.11 | tag `v1.3.12`                            |
-| fabric-permissions-api | version for 1.21.11 — **verify from its repo/maven before use**, never guess | approved 2026-09-15 |
+| fabric-permissions-api | **`me.lucko:fabric-permissions-api:0.6.1`** (last for 1.21.11; 0.7.0 targets 26.1) | Maven Central + GitHub releases, 2026-09-16 |
 
 Reading squaremap source: `api/` on master == v1.3.12. For anything in `fabric/` or `common/`, read
 the tag, not master: `git -C ../squaremap show v1.3.12:<path>`. Never recall squaremap, Fabric, or
