@@ -2,57 +2,60 @@
 
 Status markers: `[ ]` todo · `[~]` in progress · `[x]` done (lead-verified) · `[!]` blocked / escalated
 
-Rules for every task: see `CLAUDE.md` (versions, Mojmap, nav-core purity, threading, route schema).
-Lead verification after each task: run the acceptance command myself, purity grep on `nav-core`,
-check no `ServerLevel` access off the server thread, update this file, stop and report.
+Rules for every task: see `CLAUDE.md` (versions, Mojmap, core purity, threading, API schemas).
+Lead verification after each task: run the acceptance command myself, purity grep on `map-core`,
+check the threading rule, update this file, stop and report.
 
-| #  | Status | Module     | Task                                                                                                  | Acceptance (run by subagent until green, then re-run by lead) |
-|----|--------|------------|-------------------------------------------------------------------------------------------------------|---------------------------------------------------------------|
-| 1  | `[x]`  | root, nav-core, nav-fabric | Gradle multi-module skeleton, Loom, squaremap-api compileOnly, `fabric.mod.json` declaring squaremap | `./gradlew build` |
-| 2  | `[x]`  | nav-core   | Interfaces only: `WorldView` (groundY, walkable), sealed `PathResult` (success w/ points \| failure w/ reason), `FixtureWorld` parsing ASCII-art multi-layer worlds | `./gradlew :nav-core:test` (fixture-parser tests) |
-| 3  | `[x]`  | nav-core   | A* over `WorldView`: octile heuristic, node cap, pure function                                        | `./gradlew :nav-core:test` — straight line, wall with gap, unreachable, cap exceeded |
-| 4  | `[x]`  | nav-core   | Path simplification: line-of-sight string pull + Douglas-Peucker                                      | `./gradlew :nav-core:test` — 200-node staircase → <10 points |
-| 5  | `[x]`  | nav-core   | Region graph: partition into regions, inter-region links, SQLite serialization                        | `./gradlew :nav-core:test` — build, reload, assert identical |
-| 6  | `[x]`  | nav-core   | Hierarchical query: coarse region route + fine search at endpoints                                    | `./gradlew :nav-core:test` — endpoints match flat A* on a feasible fixture |
-| 7  | `[x]`  | nav-fabric | `WorldView` adapter over `ServerLevel`: snapshot chunks on server thread, read off-thread; vanilla `isPathfindable(..., PathComputationType.LAND)` as walkability base; threading boundary commented | `./gradlew build` |
-| 8  | `[x]`  | nav-fabric | `/nav <x> <z>` Brigadier command + squaremap `SimpleLayerProvider` polyline; handle squaremap absent, no path, cap exceeded | `./gradlew build` |
-| 9  | `[x]`  | nav-fabric | `/navbuild` throttled region-graph builder + invalidation on block change                             | `./gradlew build` |
-| 10 | `[x]`  | nav-fabric | Javalin `GET /route?from=&to=` returning the CLAUDE.md schema                                         | `./gradlew build` |
-| 11 | `[x]`  | web        | Next.js + Leaflet, squaremap tiles, directions panel, mock endpoint; CRS/transform from squaremap frontend source | `cd web && npm test` (+ `npm run build`) |
+## Product (re-scoped 2026-09-15)
+
+1. **Map editor (main product).** A web map over squaremap's tiles where players with permission add,
+   edit and delete **buildings** (polygons), **roads** (polylines), **railways** (polylines) and
+   **stations** (points on a railway). Everyone can view it.
+2. **Editor access.** In game, `/mapedit` (permission `squaremappro.edit`) sends the player a clickable
+   one-time link. Redeeming it opens a browser session tied to the player's UUID. This is the **only**
+   command.
+3. **Navigation (web only).** From/to on the map → route along the drawn road + rail network, with
+   straight-line walking legs to/from the network. No commands, no terrain pathfinding.
+4. **One deployable.** The web app is a static Next.js export bundled in the mod jar; Javalin serves the
+   site, the API and squaremap's tiles (read from `Squaremap#webDir()`) on one port.
+
+The previous plan (terrain A*, region graph, `/nav`, `/navbuild`, route schema v1) was built in
+commits `b3be0f7`..`7c5ec89` and is superseded. Its task log is in git history (`git show 7c5ec89:PLAN.md`).
+
+## Tasks
+
+| #  | Status | Module     | Task                                                                                                  | Acceptance |
+|----|--------|------------|-------------------------------------------------------------------------------------------------------|------------|
+| 1  | `[ ]`  | all        | **Cleanup + rename.** Delete terrain pathfinding (`nav-core` `path/ hierarchy/ region/ simplify/`, `WorldView`, `FixtureWorld`) and `nav-fabric` `world/ graph/ command/ route/ mixin/` + mixin json. Rename modules `nav-core`→`map-core`, `nav-fabric`→`map-fabric`, package `dev.nelsongx.nav`→`dev.nelsongx.map`. Keep: Gradle/Loom skeleton, Javalin lifecycle + config, squaremap layer plumbing, web CRS/tiles/`MapView`/`directions.ts`. Update `fabric.mod.json` description. | `./gradlew clean build` green; `cd web && npm test` green; `git grep -n "navbuild\|RegionGraph\|WorldView"` empty |
+| 2  | `[ ]`  | map-core   | **Feature model + validation.** `Feature` sealed: `Building(polygon, name, category, description)`, `Road(polyline, name, roadClass)`, `Railway(polyline, name, colour)`, `Station(point, name, railwayId)`. Integer block `x,z` vertices. Validation: min vertex counts, no zero-length segments, simple (non-self-intersecting) building rings, station must lie on a vertex of its railway, name length limits. | `./gradlew :map-core:test` |
+| 3  | `[ ]`  | map-core   | **SQLite `FeatureStore`** per server: `<world save>/data/squaremap-pro/map.sqlite`. CRUD per world id, monotonically increasing `revision` per feature (optimistic concurrency → `Conflict`), `created_by/updated_by` UUID + timestamps, append-only `feature_history`, `schema_version` table. Deleting a railway with stations is rejected. | `./gradlew :map-core:test` — CRUD, conflict, reload after reopen, history rows |
+| 4  | `[ ]`  | map-core   | **Network + router.** Build graph from features: roads join **only at shared vertices** (crossing without a shared vertex = bridge/tunnel); rail boarded/left **only at stations**; walking legs = straight line from the endpoint to the nearest point on any road segment (projected) or a station, plus direct walk start→goal. Cost = time (config speeds: walk, per road class, rail). Dijkstra/A* with Euclidean/max-speed heuristic. Output legs (mode, points, distance, duration, name). Pure function over an immutable network snapshot. | `./gradlew :map-core:test` — direct walk wins when short, road preferred when faster, rail only via stations, disconnected → `no_path`, bridge does not connect |
+| 5  | `[ ]`  | map-fabric | **Permissions + `/mapedit`.** `fabric-permissions-api` check `squaremappro.edit` (fallback op level 2). Command issues single-use token (256-bit random, 5 min TTL, in memory), replies with clickable `ClickEvent.OpenUrl` to `<http.publicUrl>/auth/redeem?token=…`. Sessions persisted in SQLite (configurable TTL, default 7 d), ended via web logout (single-command rule). Must run on the server thread; permission lookups for offline players use the async API. | `./gradlew build` + unit tests for token/session store |
+| 6  | `[ ]`  | map-fabric | **HTTP API** (schemas in CLAUDE.md): auth redeem/me/logout, worlds list, features GET (public) and POST/PUT/DELETE (session cookie + `X-Requested-With` CSRF header + permission re-check), route v2. Static serving: bundled web export at `/`, squaremap tiles at `/tiles/*` from `Squaremap#webDir()`. Config: bind, port, `publicUrl`. Store + routing on the executor; handlers never touch the level. | `./gradlew build` + handler tests against an in-memory store |
+| 7  | `[ ]`  | web        | **Static export + viewer.** `output: "export"`; replace the Next API mock with a test-only fixture client. World switcher, render features over tiles (styled by type/class), click → info card, search features by name. | `cd web && npm test && npm run build` |
+| 8  | `[ ]`  | web        | **Editor.** Login state from `/api/auth/me`; toolbar to draw/edit/delete building/road/railway/station with vertex snapping (so roads connect), properties panel, 409 conflict → reload prompt, validation errors shown inline. Hidden when not logged in. | `cd web && npm test && npm run build` |
+| 9  | `[ ]`  | web        | **Navigation panel** on route v2: pick from/to by map click or feature search, mode toggles (walk/road/rail), leg list with durations, turn-by-turn from leg points, route drawn per mode. | `cd web && npm test && npm run build` |
+| 10 | `[ ]`  | map-fabric | **Bundle + squaremap mirror.** Gradle copies `web/out` into the jar resources. Optional (config) mirror of features into a squaremap `SimpleLayerProvider` so squaremap's own page shows them too. | `./gradlew build`; jar contains `web/index.html` |
+| 11 | `[ ]`  | all        | **Live smoke test** (never done for the old plan): dev server with squaremap-fabric 1.3.12 + fabric-permissions-api; verify nested Javalin/Jetty/Kotlin jars load, `/mapedit` link → edit → reload persists → route works. | Lead runs it; report with screenshots/logs |
 
 ## Decisions log
 
-- 2026-09-14 — squaremap clone is on MC 26.2; reference revision pinned to tag `v1.3.12` (last 1.21.11 release). `api/` unchanged v1.3.12..master.
-- 2026-09-14 — Mappings: Mojmap (matches squaremap v1.3.12 fabric build).
-- 2026-09-14 — Route schema v1 defined in CLAUDE.md. Approved (user: "do what's most applicable"): optional `world` param, server-resolved Y, no server-side steps (web derives turns from `points`).
-- 2026-09-14 — squaremap declared as `suggests` in fabric.mod.json (optional; Task 8 handles absence).
-- 2026-09-14 — Minecraft signatures are read from Loom `genSources` output and quoted in reports.
+- 2026-09-14 — squaremap reference revision pinned to tag `v1.3.12` (last 1.21.11 release). Mappings: Mojmap.
+- 2026-09-15 — **Re-scope** (user: "a comprehensive map system with panel that can add/mark building, roads
+  and railroads … opened by user with permission in-game with command … navigation … web-only and no
+  commands"). User choices:
+  - Routing: drawn road/rail network + straight-line walking legs (terrain A* dropped).
+  - Editor access: one-time login link from an in-game command, session tied to player UUID.
+  - Permission: `fabric-permissions-api` (approved new dependency), fallback op level.
+  - Hosting: web exported statically and served by the mod.
+- 2026-09-15 — Tiles served from `Squaremap#webDir()` (api; impl `DirectoryProvider.webDirectory()` →
+  `<dataDir>/<settings.web-directory.path>`, tiles under `tiles/`, v1.3.12).
 
 ## Open questions for the user
 
-None. User (2026-09-14): "finish all and commit each stage yourself" — run tasks 2–11 back-to-back, lead commits after each verified task.
+None. User (2026-09-15): "all approved, go ahead with all task, you might ask agents to help you. commit yourself."
+Approved: route schema v2 + feature API v1 (CLAUDE.md), `@geoman-io/leaflet-geoman-free`, defaults (road classes
+`highway/main/street/path`; building categories `residential/commercial/public/industrial/other`; no one-way roads;
+any editor may edit/delete any feature, history records who), module/package rename.
 
 ## Task log
-
-- **Task 1 — done 2026-09-14.** Lead-verified: `./gradlew clean build` green, `:nav-core:test` green (smoke test asserts JDK 21), purity grep empty, mod jar nests `nav-core` via `include`, `fabric.mod.json` has `suggests: squaremap >=1.3.12`.
-  Resolved versions: Gradle 9.2.1 (squaremap v1.3.12's wrapper), `fabric-loom` 1.13.6, MC 1.21.11, Loader 0.18.4, Fabric API 0.141.3+1.21.11, squaremap-api 1.3.12, JUnit 5.13.4.
-  Notes: `gradle.properties` pins `org.gradle.java.installations.paths` to this machine's JDK 21 path (machine-specific). Harmless Loom config warning "Cannot remap modifiers…". squaremap tag v1.3.12 itself built against Loader 0.18.2 / API 0.139.4; we use the newer f3e6f72 values.
-- **Task 2 — done 2026-09-14.** Lead-verified: clean build green; 22 tests (FixtureWorldTest 17, PathResultTest 4, smoke 1), 0 failures; purity grep empty. `FixtureWorld` lives in `testFixtures` (format: `y=<n>` headers, `#` solid, `.` air, `~` fluid, `A–Z` markers, `;` comments). `maxY` = top layer + 2.
-- **Task 3 — done 2026-09-14.** Lead-verified: clean build green; 57 tests, 0 failures; purity grep empty; no static mutable state. `MovementModel` (8-dir, step up 1, drop 3, no corner cutting, costs 1/√2/+0.5 up/+0.25 per block down) is the single source of legal moves; `AStar.findPath(world, start, goal, maxNodes)` verified optimal vs brute-force Dijkstra on seeded random worlds.
-  Lead-requested fix in the same task: first version let drops/step-ups pass through solid blocks. **`WorldView` gained `boolean passable(x,y,z)`** (Task 7 adapter must implement it); step up requires headroom at mover y+2, drops require a clear target column.
-- **Task 4 — done 2026-09-14.** Lead-verified: clean build green; 75 tests, 0 failures; purity grep empty. `LineOfSight.clear` walks a supercover line using `MovementModel` moves (so simplified segments are followable); `PathSimplifier.simplify(world, path[, epsilon[, maxLookahead]])` = string pull + LOS-constrained Douglas-Peucker. 200-node staircase → 2 points; climbing staircase 48 → 2.
-- **Task 5 — done 2026-09-14.** Lead-verified: clean build green; 117 tests, 0 failures; purity grep empty. Regions = mutual-move connected components per sector (default 16); `RegionLink` = every directed legal move between different regions; deterministic indices by (y,z,x) seed. `RegionGraph` immutable with `locate` and `withSectorsRebuilt` (rebuild ≡ full build, incl. 8-neighbour link recompute). `RegionGraphStore` save/load SQLite (`sqlite-jdbc 3.53.4.0`, atomic tmp+move, `format_version=1`).
-  **Carry-forward for Task 9:** nav-fabric must also `include("org.xerial:sqlite-jdbc:3.53.4.0")` — `include(project(":nav-core"))` does not nest transitive deps.
-- **Task 6 — done 2026-09-14.** Lead-verified: clean build green; 132 tests, 0 failures; purity grep empty. `HierarchicalPathfinder` (coarse A* over portal states → per-segment A*, flat fallbacks for near / same-region / unlocatable / stale) and `Router.route(world, graph|null, start, goal, opts)` = search + `PathSimplifier`. Acceptance 64×64 fixture: same endpoints and cost as flat (140.975) with 868 vs 2,052 expansions; unreachable rejected with 1,336 vs 3,692.
-- **Task 7 — done 2026-09-14.** Lead-verified: clean build green; 147 tests total (nav-fabric 15), 0 failures; purity grep empty; no Yarn names; spot-checked quoted signatures against Loom Mojmap sources (`BlockStateBase#isPathfindable(PathComputationType)`, `ServerChunkCache#getChunkNow` returns null off main thread and never loads, `PalettedContainer#get/maybeHas`, `LevelHeightAccessor#getMaxY`). Server-thread entry points assert `isSameThread()`; off-thread classes (`SnapshotWorldView`, `ChunkSnapshot`, `BlockClass`, `NavExecutor`) import no MC/Fabric types. `SnapshotCache.prepare` (any thread) → drained in `END_SERVER_TICK` (2 ms / 64 chunks per tick) → completes via `thenApplyAsync` on `NavExecutor`.
-  Behaviour choice: closed doors are BLOCKED (vanilla LAND); dirt path/farmland standable.
-- **Task 8 — done 2026-09-14.** Lead-verified: clean build green; 161 tests, 0 failures; purity grep empty; mod jar has 0 squaremap classes; only `SquaremapNavMapLayer` + a nested factory reference `xyz.jpenilla` (loaded only when `isModLoaded("squaremap")`). `RouteService.route(dim, fromX, fromY?, fromZ, toX, toZ)` (any thread) → `RouteOutcome` mirroring the schema statuses; `/nav <x> <z>`, `/nav clear`; one in-flight route per player; feedback via guarded `server.execute`.
-  Lead-requested fixes: player start Y = nearest walkable within ±3 (no surface jump from caves); in-flight UUID cleared in executor completion and on SERVER_STOPPING. Unexpected internal errors map to `not_ready` with "internal error" text.
-- **Task 9 — done 2026-09-14.** Lead-verified: clean build green; 185 tests, 0 failures; purity grep empty; nav-core untouched; jar nests `nav-core` + `sqlite-jdbc-3.53.4.0` (12 MB) + `squaremap-pro.mixins.json`, no squaremap classes; no blocking calls on server thread (all `.get()` are atomics). `/navbuild <radius>|area|status|cancel` (gamemaster permission via 1.21.11 `Commands.hasPermission(LEVEL_GAMEMASTERS)`); `LevelChunkMixin` on `setBlockState` RETURN → `BlockChangeTracker` (server-thread-only) invalidates snapshot + marks built sectors dirty → rebuilt every 100 ticks on a serialized worker lane; graphs persisted to `<world>/data/squaremap-pro/regions/<ns>/<path>.sqlite` (debounced). `GraphUsePolicy`: graph used only if every chunk in the query box is built (avoids false NO_PATH).
-  Notable: snapshot margin 2 chunks (margin 1 proven insufficient for neighbour links); sectors adjacent to unloaded built sectors are deferred.
-- **Task 10 — done 2026-09-15.** (First attempt interrupted by an API rate limit, resumed — not counted as a failed attempt.) Lead-verified: clean build green; 240 tests, 0 failures; purity grep empty; only `RouteHttpLifecycle` imports MC/Fabric in `http/`. Javalin 7.2.3 (Jetty 12.1.12, kotlin-stdlib 2.2.20) nested as 32 jars (~6.6 MB; mod jar 18.5 MB total); slf4j/ASM/Gson taken from MC/Loader. Config `config/squaremap-pro.properties` (bind 127.0.0.1:8765, CORS `http://localhost:3000`, timeout 10 s, max 16 concurrent). Start/stop + config I/O on a lifecycle daemon thread; handlers complete via `ctx.future`; GET-only CORS filter.
-  **Not yet validated in a running game:** nested Jetty/Kotlin jar loading under Fabric Loader, and possible kotlin-stdlib overlap with Fabric Language Kotlin.
-- **Task 11 — done 2026-09-15.** Lead-verified in `web/`: `npm test` 69 passed, `npx tsc --noEmit` clean, `npm run lint` clean, `npm run build` green; repo-wide `./gradlew clean build` still green, purity grep empty. Next 16.3.5 / React 19.3 / Leaflet 1.9.4 / Vitest 5 / TypeScript 6.0.3 (TS 7 incompatible with Next + typescript-eslint). CRS ported from squaremap v1.3.12 (`L.CRS.Simple`, `lat = -z/2^max`, `lng = x/2^max`, tiles `tiles/<world>/{z}/{x}_{y}.png`, 512 px). Mock `/api/mock/route` mirrors schema + status codes (to.x = 13/14/15 → no_path/cap_exceeded/not_ready). Turn-by-turn derived client-side (x east, z south; cross > 0 = right turn).
-  Notes: world web name → id replaces first `_` with `:` (ambiguous for namespaces containing `_`); walking speed 4.317 b/s is an assumption; the mod's `http.cors.origins` must include the web origin.
-
-## Status: all 11 tasks done. Not yet exercised in a live Minecraft server (see Task 10 note).
