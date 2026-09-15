@@ -1,5 +1,6 @@
 /**
- * Turn-by-turn directions derived client-side from route `points` (schema v1). Pure.
+ * Turn-by-turn directions derived client-side from route leg `points` (route schema v2: integer
+ * block `{x, z}`, no y). Pure.
  *
  * Coordinate system (Minecraft): +x = east, -x = west, +z = south, -z = north. Looking down on the
  * map with north up (as squaremap draws it: `toLatLng(x, z) = latLng(-z*scale, x*scale)`, so -z is
@@ -19,10 +20,9 @@
  * So angle > 0 = right, angle < 0 = left.
  *
  * Classification of |angle|: < 15° straight; 15°..<45° slight; 45°..135° turn; > 135° sharp.
- * Straight waypoints (and segments with no horizontal movement) are collapsed into the previous
- * step. Climb/descend uses the net Δy over a step's segments, appended when |Δy| >= 2.
+ * Straight waypoints (and zero-length segments) are collapsed into the previous step.
  */
-import type { BlockPos } from "./routeSchema";
+import type { XZ } from "./api/types";
 
 export type CompassDir =
   | "north"
@@ -49,12 +49,10 @@ export interface Step {
   kind: StepKind;
   /** Short action label, e.g. "Head east", "Turn right", "Arrive at destination". */
   action: string;
-  /** Full instruction including climb/descend suffix. */
+  /** Full instruction text. */
   text: string;
-  /** 3D length of the step's segments in blocks (0 for arrive). */
+  /** 2D length of the step's segments in blocks (0 for arrive). */
   distance: number;
-  /** Net Δy over the step's segments. */
-  dy: number;
   /** Segment index range [firstSegment, lastSegment] (segment i = points[i] -> points[i+1]); null for arrive. */
   segments: [number, number] | null;
 }
@@ -112,29 +110,22 @@ export function turnLabel(kind: TurnKind): string {
   return TURN_LABEL[kind];
 }
 
-function climbSuffix(dy: number): string {
-  if (dy >= 2) return `, climb ${dy} blocks`;
-  if (dy <= -2) return `, descend ${-dy} blocks`;
-  return "";
-}
-
-function segLen(a: BlockPos, b: BlockPos): number {
-  return Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+function segLen(a: XZ, b: XZ): number {
+  return Math.hypot(b.x - a.x, b.z - a.z);
 }
 
 interface Draft {
   kind: StepKind;
   action: string;
   distance: number;
-  dy: number;
   segments: [number, number];
 }
 
 function finish(d: Draft): Step {
-  return { ...d, text: d.action + climbSuffix(d.dy) };
+  return { ...d, text: d.action };
 }
 
-export function buildDirections(points: readonly BlockPos[]): Step[] {
+export function buildDirections(points: readonly XZ[]): Step[] {
   const steps: Step[] = [];
   let current: Draft | null = null;
   // Last horizontal heading (x/z) that had non-zero length.
@@ -146,7 +137,6 @@ export function buildDirections(points: readonly BlockPos[]): Step[] {
     const dx = b.x - a.x;
     const dz = b.z - a.z;
     const len = segLen(a, b);
-    const dy = b.y - a.y;
     const horizontal = dx !== 0 || dz !== 0;
 
     let startNew = false;
@@ -169,24 +159,21 @@ export function buildDirections(points: readonly BlockPos[]): Step[] {
     }
 
     if (startNew && kind === "depart" && current !== null) {
-      // Leading purely vertical segment(s) already opened the departure step: name it now.
+      // Leading zero-length segment(s) already opened the departure step: name it now.
       current.action = action;
       current.distance += len;
-      current.dy += dy;
       current.segments = [current.segments[0], i];
     } else if (startNew || current === null) {
       if (current !== null) steps.push(finish(current));
       current = {
-        // A leading purely vertical segment becomes part of the departure step.
+        // A leading zero-length segment becomes part of the departure step.
         kind: startNew ? kind : "depart",
         action: startNew ? action : "Head out",
         distance: len,
-        dy,
         segments: [i, i],
       };
     } else {
       current.distance += len;
-      current.dy += dy;
       current.segments = [current.segments[0], i];
     }
   }
@@ -197,7 +184,6 @@ export function buildDirections(points: readonly BlockPos[]): Step[] {
     action: "Arrive at destination",
     text: "Arrive at destination",
     distance: 0,
-    dy: 0,
     segments: null,
   });
   return steps;

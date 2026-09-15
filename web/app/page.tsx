@@ -1,5 +1,5 @@
-import NavApp from "../components/NavApp";
+import ViewerApp from "../components/ViewerApp";
 
 export default function Page() {
-  return <NavApp />;
+  return <ViewerApp />;
 }

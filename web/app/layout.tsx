@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "squaremap-pro navigation",
-  description: "Turn-by-turn navigation on squaremap",
+  title: "squaremap-pro map",
+  description: "Buildings, roads, railways and stations on squaremap",
 };
 
 export const viewport: Viewport = {

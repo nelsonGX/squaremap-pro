@@ -1,53 +1,48 @@
 # squaremap-pro web
 
-Next.js (App Router) + Leaflet navigation UI on top of squaremap's tiles.
+Next.js (App Router, `output: "export"`) + Leaflet map viewer on top of squaremap's tiles. The
+production build is a static site in `web/out`, served by the mod at `/`.
 
 ## Commands
 
 ```sh
 npm install
-npm run dev        # http://localhost:3000
+npm run dev        # http://localhost:3000 — uses the fixture API (.env.development)
 npm test           # vitest run (pure unit tests in lib/)
-npm run build      # production build
 npx tsc --noEmit   # type check
 npm run lint       # eslint (eslint-config-next)
+npm run build      # static export → out/ (out/index.html)
 ```
 
-## Configuration
+## Configuration (build time, `NEXT_PUBLIC_*`)
 
-Both variables are read at build time (`NEXT_PUBLIC_*`), e.g. in `.env.local`.
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `NEXT_PUBLIC_API_BASE` | `""` (same origin) | Prefix for `/api/...` calls. |
+| `NEXT_PUBLIC_TILES_BASE` | `/tiles` | squaremap's `<webDir>/tiles` over HTTP. |
+| `NEXT_PUBLIC_USE_FIXTURES` | unset (`1` in `.env.development`) | `1` = in-memory `FixtureApiClient`, no tiles, no settings fetch. |
 
-| Variable | Example | When unset |
-|----------|---------|------------|
-| `NEXT_PUBLIC_SQUAREMAP_URL` | `http://localhost:8080` | Uses the bundled mock `public/mock-squaremap` (`tiles/settings.json` + per-world `tiles/<world>/settings.json`). There are no tiles; missing tiles are replaced by a transparent image over a grid background. |
-| `NEXT_PUBLIC_ROUTE_API` | `http://127.0.0.1:8765` | Uses the mock route handler at `/api/mock/route`. |
+To run `next dev` against a real server, create `.env.development.local` with
+`NEXT_PUBLIC_USE_FIXTURES=0`, `NEXT_PUBLIC_API_BASE=http://host:port`, `NEXT_PUBLIC_TILES_BASE=http://host:port/tiles`.
+Cross-origin requests do not carry the session cookie (`credentials: "same-origin"`), so editing
+only works from the same origin.
 
-The client requests `${NEXT_PUBLIC_ROUTE_API}/route?from=x,z&to=x,z&world=namespace:path`. When
-pointing at the mod, add the web origin (e.g. `http://localhost:3000`) to the mod's
-`http.cors.origins`. squaremap tiles are loaded as `<img>` elements, which need no CORS.
+## Paths the server must serve
 
-The squaremap world *web name* (`minecraft_overworld`) is converted to the route API world id by
-replacing the first `_` with `:` (squaremap writes `identifier.toString().replace(":", "_")`, which
-is not reversible for namespaces containing `_`).
-
-## Mock route endpoint
-
-`GET /api/mock/route?from=x,z&to=x,z[&world=]` — same validation and HTTP status codes as the mod
-(schema v1, see the repo's `CLAUDE.md`). Deterministic fake routes. Special cases:
-
-| Request | Result |
-|---------|--------|
-| `world` not in the mock settings.json | 404 `world_not_found` |
-| `to` x = 13 | 200 `no_path` |
-| `to` x = 14 | 200 `cap_exceeded` |
-| `to` x = 15 | 503 `not_ready` |
+| Path | Source |
+|------|--------|
+| `/`, `/index.html`, `/404.html`, `/_next/**`, `/*.txt` | `web/out` (static export) |
+| `/tiles/<web name>/{z}/{x}_{y}.png` | squaremap `<webDir>/tiles` (web name = world id with `:` → `_`) |
+| `/tiles/<web name>/settings.json` | same (zoom `max/def/extra`, `spawn`; defaults 3/3/2 if missing) |
+| `GET /api/worlds`, `GET /api/worlds/{world}/features`, `GET /api/auth/me` | mod API (world id kept readable, e.g. `/api/worlds/minecraft:overworld/features`) |
 
 ## Layout
 
-- `lib/squaremapCrs.ts` — block ↔ LatLng transform ported from squaremap v1.3.12 `Squaremap.js`.
-- `lib/squaremapSettings.ts` — squaremap `settings.json` shapes and guards.
-- `lib/routeSchema.ts` — schema v1 type guard.
-- `lib/routeClient.ts` — URL building, input parsing, response classification, fetch.
-- `lib/directions.ts` — turn-by-turn steps derived from `points` (left/right derivation documented in the file).
-- `lib/mockRoute.ts` — pure mock endpoint; `app/api/mock/route/route.ts` is a thin wrapper.
-- `components/NavApp.tsx` — directions panel; `components/MapView.tsx` — Leaflet map (client-only via `next/dynamic`, `ssr: false`).
+- `lib/api/types.ts` — Feature API v1, auth and route schema v2 types (CLAUDE.md).
+- `lib/api/guards.ts` — hand-written response validation (`parseWorlds`, `parseFeatureList`, `parseRouteResponse`, …).
+- `lib/api/client.ts` — `ApiClient` interface, `ApiError`, `HttpApiClient` (CSRF header on non-GET).
+- `lib/api/fixtures.ts` — `FixtureApiClient` + fixture data (validated by tests).
+- `lib/features/` — styles, search, geometry → LatLng / bounds, layer visibility.
+- `lib/squaremapCrs.ts`, `lib/squaremapSettings.ts` — squaremap v1.3.12 CRS and settings.
+- `lib/directions.ts` — turn-by-turn from `{x,z}` points (for the Task 9 navigation panel).
+- `components/ViewerApp.tsx` — panel (search, world switcher, layer chips, info card); `components/MapView.tsx` — Leaflet map (client-only via `next/dynamic`).

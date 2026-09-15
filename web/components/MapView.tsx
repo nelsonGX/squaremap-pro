@@ -2,19 +2,17 @@
 
 /**
  * Leaflet map configured like squaremap v1.3.12's frontend (CRS.Simple, 512px tiles,
- * `tiles/<world>/{z}/{x}_{y}.png`, maxNativeZoom = zoom.max, min zoom 0, max zoom = max + extra).
- * Client-only: loaded through `next/dynamic` with `ssr: false` because Leaflet touches `window`.
+ * `tiles/<world>/{z}/{x}_{y}.png`, maxNativeZoom = zoom.max, min zoom 0, max zoom = max + extra),
+ * with the drawn features on top. Client-only: loaded through `next/dynamic` with `ssr: false`
+ * because Leaflet touches `window`.
  */
 import { useEffect, useRef } from "react";
 import * as L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import {
-  blockCentreLatLng,
-  SQUAREMAP_TILE_SIZE,
-  toBlock,
-  toLatLng,
-} from "../lib/squaremapCrs";
-import type { BlockPos } from "../lib/routeSchema";
+import type { Feature } from "../lib/api/types";
+import { flyTarget, vertexLatLngs } from "../lib/features/geometry";
+import { displayName, drawOrder, featureStyle, railwayColourMap } from "../lib/features/styles";
+import { SQUAREMAP_TILE_SIZE, toLatLng, type LatLngLike } from "../lib/squaremapCrs";
 import type { WorldSettingsZoom } from "../lib/squaremapSettings";
 import styles from "./MapView.module.css";
 
@@ -22,35 +20,47 @@ import styles from "./MapView.module.css";
 const CLEAR_PNG =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
+/** Must match the panel breakpoint in ViewerApp.module.css. */
+const SHEET_BREAKPOINT_PX = 700;
+const HALO_COLOUR = "#1a73e8";
+
+export interface FlyRequest {
+  featureId: string;
+  /** Changes on every request so flying to the same feature twice works. */
+  nonce: number;
+}
+
 export interface MapViewProps {
-  /** Tile URL template, or null while the world is unknown. */
+  /** Tile URL template, or null while no world is selected. */
   tileTemplate: string | null;
   /** Changes whenever the world (and therefore the view) should be reset. */
   worldKey: string;
   zoom: WorldSettingsZoom;
   spawn: { x: number; z: number };
-  routePoints: readonly BlockPos[] | null;
-  /** Inclusive segment range to highlight (segment i = points[i] -> points[i+1]). */
-  highlight: [number, number] | null;
-  from: { x: number; z: number } | null;
-  to: { x: number; z: number } | null;
-  onMapClick: (block: { x: number; z: number }) => void;
+  /** Features to draw (already filtered by layer visibility). */
+  features: readonly Feature[];
+  /** All features of the world (station colours come from railways even when railways are hidden). */
+  allFeatures: readonly Feature[];
+  selectedId: string | null;
+  flyRequest: FlyRequest | null;
+  onSelect: (featureId: string | null) => void;
 }
 
+const ll = (p: LatLngLike) => L.latLng(p.lat, p.lng);
+
 export default function MapView(props: MapViewProps) {
-  const { tileTemplate, worldKey, zoom, spawn, routePoints, highlight, from, to, onMapClick } = props;
+  const { tileTemplate, worldKey, zoom, spawn, features, allFeatures, selectedId, flyRequest, onSelect } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileRef = useRef<L.TileLayer | null>(null);
-  const routeLayerRef = useRef<L.LayerGroup | null>(null);
-  const endpointLayerRef = useRef<L.LayerGroup | null>(null);
-  const highlightLayerRef = useRef<L.LayerGroup | null>(null);
-  const maxZoomRef = useRef(zoom.max);
-  const clickRef = useRef(onMapClick);
+  const featureLayerRef = useRef<L.LayerGroup | null>(null);
+  const haloLayerRef = useRef<L.LayerGroup | null>(null);
+  const haloRendererRef = useRef<L.Renderer | null>(null);
+  const selectRef = useRef(onSelect);
 
   useEffect(() => {
-    clickRef.current = onMapClick;
-  }, [onMapClick]);
+    selectRef.current = onSelect;
+  }, [onSelect]);
 
   // Create the map once.
   useEffect(() => {
@@ -59,15 +69,19 @@ export default function MapView(props: MapViewProps) {
     const map = L.map(el, {
       crs: L.CRS.Simple,
       center: [0, 0],
+      zoom: 0,
       attributionControl: false,
+      zoomControl: false,
       preferCanvas: true,
     });
-    map.on("click", (e: L.LeafletMouseEvent) => {
-      clickRef.current(toBlock(e.latlng, maxZoomRef.current));
-    });
-    routeLayerRef.current = L.layerGroup().addTo(map);
-    highlightLayerRef.current = L.layerGroup().addTo(map);
-    endpointLayerRef.current = L.layerGroup().addTo(map);
+    L.control.zoom({ position: "bottomright" }).addTo(map);
+    // Selection halo sits below the features (overlayPane z-index 400).
+    map.createPane("halo").style.zIndex = "390";
+    haloRendererRef.current = L.canvas({ pane: "halo" });
+    // Clicks on features do not bubble (bubblingMouseEvents: false), so this is a click on empty map.
+    map.on("click", () => selectRef.current(null));
+    haloLayerRef.current = L.layerGroup().addTo(map);
+    featureLayerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
     const ro = new ResizeObserver(() => map.invalidateSize());
     ro.observe(el);
@@ -83,7 +97,6 @@ export default function MapView(props: MapViewProps) {
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    maxZoomRef.current = zoom.max;
     if (tileRef.current) {
       map.removeLayer(tileRef.current);
       tileRef.current = null;
@@ -97,75 +110,92 @@ export default function MapView(props: MapViewProps) {
       }).addTo(map);
       tileRef.current.bringToBack();
     }
-    const c = toLatLng(spawn.x, spawn.z, zoom.max);
     map
-      .setView([c.lat, c.lng], zoom.def)
       .setMinZoom(0)
-      .setMaxZoom(zoom.max + zoom.extra);
+      .setMaxZoom(zoom.max + zoom.extra)
+      .setView(ll(toLatLng(spawn.x, spawn.z, zoom.max)), zoom.def);
     // worldKey intentionally drives the reset; spawn/zoom values are part of it.
   }, [tileTemplate, worldKey, zoom.max, zoom.def, zoom.extra, spawn.x, spawn.z]);
 
-  // Route polyline.
+  // Features.
+  useEffect(() => {
+    const group = featureLayerRef.current;
+    if (!group) return;
+    group.clearLayers();
+    const colours = railwayColourMap(allFeatures);
+    for (const f of drawOrder(features)) {
+      const style = featureStyle(f, colours);
+      const latlngs = vertexLatLngs(f.geometry, zoom.max).map(ll);
+      const first = latlngs[0];
+      if (!first) continue;
+      const common = { bubblingMouseEvents: false } as const;
+      let main: L.Path;
+      switch (style.shape) {
+        case "polygon":
+          main = L.polygon(latlngs, { ...style.main, ...common });
+          break;
+        case "line":
+          if (style.casing) L.polyline(latlngs, { ...style.casing, interactive: false }).addTo(group);
+          main = L.polyline(latlngs, { ...style.main, ...common });
+          break;
+        case "circle":
+          main = L.circleMarker(first, { ...style.main, ...common });
+          break;
+      }
+      main
+        .bindTooltip(displayName(f), { sticky: style.shape !== "circle", direction: "top", offset: [0, -6] })
+        .on("click", () => selectRef.current(f.id))
+        .addTo(group);
+    }
+  }, [features, allFeatures, zoom.max]);
+
+  // Selection halo.
+  useEffect(() => {
+    const group = haloLayerRef.current;
+    const renderer = haloRendererRef.current;
+    if (!group || !renderer) return;
+    group.clearLayers();
+    const f = selectedId ? features.find((x) => x.id === selectedId) : undefined;
+    if (!f) return;
+    const latlngs = vertexLatLngs(f.geometry, zoom.max).map(ll);
+    const first = latlngs[0];
+    if (!first) return;
+    const halo = { renderer, color: HALO_COLOUR, opacity: 0.45, interactive: false, lineCap: "round", lineJoin: "round" } as const;
+    switch (f.type) {
+      case "building":
+        L.polygon(latlngs, { ...halo, weight: 8, fill: false }).addTo(group);
+        break;
+      case "road":
+      case "railway":
+        L.polyline(latlngs, { ...halo, weight: 18 }).addTo(group);
+        break;
+      case "station":
+        L.circleMarker(first, { ...halo, radius: 13, weight: 0, fill: true, fillColor: HALO_COLOUR, fillOpacity: 0.35 }).addTo(group);
+        break;
+    }
+  }, [selectedId, features, zoom.max]);
+
+  // Fly to a feature, keeping it clear of the side panel / bottom sheet.
   useEffect(() => {
     const map = mapRef.current;
-    const layer = routeLayerRef.current;
-    if (!map || !layer) return;
-    layer.clearLayers();
-    if (!routePoints || routePoints.length === 0) return;
-    const latlngs = routePoints.map((p) => {
-      const ll = blockCentreLatLng(p.x, p.z, zoom.max);
-      return L.latLng(ll.lat, ll.lng);
-    });
-    L.polyline(latlngs, { color: "#1a56db", weight: 6, opacity: 0.85, interactive: false }).addTo(layer);
-    L.polyline(latlngs, { color: "#93c5fd", weight: 2, opacity: 0.9, interactive: false }).addTo(layer);
-    const bounds = L.latLngBounds(latlngs);
-    if (bounds.isValid()) {
-      map.fitBounds(bounds, { padding: [48, 48], maxZoom: zoom.max });
-    }
-  }, [routePoints, zoom.max]);
-
-  // Highlighted step segment(s).
-  useEffect(() => {
-    const layer = highlightLayerRef.current;
-    if (!layer) return;
-    layer.clearLayers();
-    if (!routePoints || !highlight) return;
-    const [a, b] = highlight;
-    const pts = routePoints.slice(a, b + 2).map((p) => {
-      const ll = blockCentreLatLng(p.x, p.z, zoom.max);
-      return L.latLng(ll.lat, ll.lng);
-    });
-    if (pts.length < 2) return;
-    L.polyline(pts, { color: "#f59e0b", weight: 9, opacity: 0.95, interactive: false }).addTo(layer);
-  }, [routePoints, highlight, zoom.max]);
-
-  // Start / end markers (from the route when present, else the pending inputs).
-  useEffect(() => {
-    const layer = endpointLayerRef.current;
-    if (!layer) return;
-    layer.clearLayers();
-    const first = routePoints?.[0];
-    const last = routePoints?.[routePoints.length - 1];
-    const start = first ?? from;
-    const end = last ?? to;
-    const add = (p: { x: number; z: number } | null | undefined, color: string, label: string) => {
-      if (!p) return;
-      const ll = blockCentreLatLng(p.x, p.z, zoom.max);
-      L.circleMarker([ll.lat, ll.lng], {
-        radius: 8,
-        color: "#fff",
-        weight: 3,
-        fillColor: color,
-        fillOpacity: 1,
-        interactive: true,
-        bubblingMouseEvents: true,
-      })
-        .bindTooltip(`${label}: ${p.x}, ${p.z}`)
-        .addTo(layer);
+    if (!map || !flyRequest) return;
+    const f = allFeatures.find((x) => x.id === flyRequest.featureId);
+    const target = f ? flyTarget(f, zoom.max) : null;
+    if (!target) return;
+    const size = map.getSize();
+    const sheet = size.x < SHEET_BREAKPOINT_PX;
+    const options: L.FitBoundsOptions = {
+      paddingTopLeft: sheet ? L.point(32, 32) : L.point(Math.min(420, size.x / 2), 48),
+      paddingBottomRight: sheet ? L.point(32, Math.round(size.y * 0.5)) : L.point(48, 48),
+      maxZoom: zoom.max,
+      duration: 0.8,
     };
-    add(start, "#16a34a", "Start");
-    add(end, "#dc2626", "Destination");
-  }, [routePoints, from, to, zoom.max]);
+    const bounds =
+      target.kind === "point" ? L.latLngBounds(ll(target.latLng), ll(target.latLng)) : L.latLngBounds(ll(target.bounds[0]), ll(target.bounds[1]));
+    map.flyToBounds(bounds, options);
+    // Only a new request should fly; feature list refreshes must not move the map.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flyRequest]);
 
   return <div ref={containerRef} className={styles.map} role="application" aria-label="Map" />;
 }

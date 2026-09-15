@@ -68,6 +68,27 @@ export function isWorldSettings(v: unknown): v is WorldSettings {
   );
 }
 
+/**
+ * Used when a world's settings.json cannot be loaded (squaremap WorldConfig defaults: zoom max 3,
+ * default 3, extra 2), and always in fixture mode (no tiles).
+ */
+export const DEFAULT_WORLD_SETTINGS: WorldSettings = {
+  spawn: { x: 0, z: 0 },
+  zoom: { max: 3, def: 3, extra: 2 },
+  marker_update_interval: 5,
+  tiles_update_interval: 15,
+};
+
+/** `${tilesBase}/<web name>/settings.json` (squaremap `UpdateWorldData` writes it under `tiles/<web name>/`). */
+export function worldSettingsUrl(tilesBase: string, worldId: string): string {
+  return `${tilesBase.replace(/\/+$/, "")}/${worldIdToWebName(worldId)}/settings.json`;
+}
+
+/** Tile template `${tilesBase}/<web name>/{z}/{x}_{y}.png` (squaremap `LayerControl.createTileLayer`). */
+export function worldTileTemplate(tilesBase: string, worldId: string): string {
+  return `${tilesBase.replace(/\/+$/, "")}/${worldIdToWebName(worldId)}/{z}/{x}_{y}.png`;
+}
+
 /** Worlds sorted by `order`, as squaremap's `WorldList` does (`a[1].order - b[1].order`). */
 export function sortWorlds(worlds: readonly SettingsWorld[]): SettingsWorld[] {
   return [...worlds].sort((a, b) => a.order - b.order);
@@ -86,4 +107,30 @@ export function worldIdToWebName(worldId: string): string {
 export function webNameToWorldId(webName: string): string {
   const i = webName.indexOf("_");
   return i < 0 ? webName : `${webName.slice(0, i)}:${webName.slice(i + 1)}`;
+}
+
+export type SettingsFetch = (url: string, init: RequestInit) => Promise<Response>;
+
+/**
+ * Loads a world's squaremap settings.json. Never rejects except on abort: on any failure it returns
+ * {@link DEFAULT_WORLD_SETTINGS} with a warning (the map still works, zoom levels may be off).
+ */
+export async function loadWorldSettings(
+  url: string,
+  signal?: AbortSignal,
+  fetchImpl: SettingsFetch = (u, i) => fetch(u, i),
+): Promise<{ settings: WorldSettings; warning: string | null }> {
+  const fallback = (why: string) => ({
+    settings: DEFAULT_WORLD_SETTINGS,
+    warning: `Could not load squaremap world settings (${why}); using default zoom levels.`,
+  });
+  try {
+    const res = await fetchImpl(url, { cache: "no-store", signal });
+    if (!res.ok) return fallback(`HTTP ${res.status}`);
+    const json: unknown = await res.json();
+    return isWorldSettings(json) ? { settings: json, warning: null } : fallback("unexpected shape");
+  } catch (e) {
+    if (signal?.aborted) throw e;
+    return fallback(e instanceof Error ? e.message : String(e));
+  }
 }

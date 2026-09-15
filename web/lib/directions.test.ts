@@ -7,9 +7,9 @@ import {
   signedTurnAngle,
   walkingSeconds,
 } from "./directions";
-import type { BlockPos } from "./routeSchema";
+import type { XZ } from "./api/types";
 
-const p = (x: number, z: number, y = 64): BlockPos => ({ x, y, z });
+const p = (x: number, z: number): XZ => ({ x, z });
 
 describe("compassDir (north = -z, east = +x)", () => {
   const cases: Array<[number, number, string]> = [
@@ -96,16 +96,14 @@ describe("buildDirections", () => {
     expect(steps[1]!.segments).toEqual([3, 3]);
   });
 
-  it("appends climb / descend when |dy| >= 2 over a step", () => {
-    const steps = buildDirections([p(0, 0, 64), p(10, 0, 70), p(10, 10, 61), p(0, 10, 62)]);
-    expect(steps[0]!.text).toBe("Head east, climb 6 blocks");
-    expect(steps[1]!.text).toBe("Turn right, descend 9 blocks");
-    expect(steps[2]!.text).toBe("Turn right"); // dy = 1 -> no suffix
-    expect(steps[0]!.distance).toBeCloseTo(Math.hypot(10, 6));
+  it("measures 2D step distance", () => {
+    const steps = buildDirections([p(0, 0), p(10, 5), p(10, 20)]);
+    expect(steps[0]!.distance).toBeCloseTo(Math.hypot(10, 5));
+    expect(steps[1]!.distance).toBe(15);
   });
 
   it("handles a 2-point route", () => {
-    const steps = buildDirections([p(12, -40, 64), p(12, -140, 64)]);
+    const steps = buildDirections([p(12, -40), p(12, -140)]);
     expect(steps).toHaveLength(2);
     expect(steps[0]).toMatchObject({ kind: "depart", text: "Head north", distance: 100, segments: [0, 0] });
     expect(steps[1]!.kind).toBe("arrive");
@@ -116,10 +114,10 @@ describe("buildDirections", () => {
     expect(steps).toEqual([expect.objectContaining({ kind: "arrive" })]);
   });
 
-  it("merges purely vertical segments without inventing turns", () => {
-    const steps = buildDirections([p(0, 0, 60), p(0, 0, 64), p(0, 10, 64), p(0, 10, 66), p(0, 20, 66)]);
+  it("merges zero-length segments without inventing turns", () => {
+    const steps = buildDirections([p(0, 0), p(0, 0), p(0, 10), p(0, 10), p(0, 20)]);
     expect(steps.map((s) => s.kind)).toEqual(["depart", "arrive"]);
-    expect(steps[0]).toMatchObject({ action: "Head south", dy: 6, segments: [0, 3] });
+    expect(steps[0]).toMatchObject({ action: "Head south", distance: 20, segments: [0, 3] });
   });
 });
 
