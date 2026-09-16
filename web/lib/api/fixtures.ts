@@ -79,6 +79,18 @@ export const FIXTURE_FEATURES: Record<string, unknown[]> = {
       ...stamp("2026-09-08T12:00:00Z"),
     },
     {
+      id: "f_school", type: "building", revision: 1, name: "Redstone Academy",
+      geometry: [p(30, 40), p(90, 40), p(90, 80), p(30, 80)],
+      props: { category: "education", description: "Classrooms, library and the observation tower." },
+      ...stamp("2026-09-11T11:00:00Z"),
+    },
+    {
+      id: "f_wheat_farm", type: "building", revision: 1, name: "River Farm",
+      geometry: [p(-190, 90), p(-110, 90), p(-110, 150), p(-190, 150)],
+      props: { category: "farm", description: "Wheat, carrots and the village composters." },
+      ...stamp("2026-09-11T11:20:00Z", "2026-09-11T11:20:00Z", ALEX),
+    },
+    {
       id: "f_kings_highway", type: "road", revision: 1, name: "King's Highway",
       geometry: [p(-300, -60), p(0, -60), p(300, -60)],
       props: { roadClass: "highway" },

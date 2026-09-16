@@ -74,9 +74,10 @@
  */
 
 .interchange {
+  --interchange-size: 22px;
   position: relative;
-  width: 22px;
-  height: 22px;
+  width: var(--interchange-size);
+  height: var(--interchange-size);
   border-radius: 50%;
   background: var(--interchange-ring);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.9);
@@ -87,7 +88,7 @@
 .interchange::after {
   content: "";
   position: absolute;
-  inset: 4px;
+  inset: calc(var(--interchange-size) * 0.18);
   border-radius: 50%;
   background: #fff;
 }
@@ -101,6 +102,79 @@
   color: var(--label);
   font: 600 10px/1 var(--font-ui);
   letter-spacing: 0;
+}
+
+/*
+ * ---- Map labels ----
+ *
+ * Names drawn on the map itself. Over squaremap tiles there is no flat land tone to sit on, so the
+ * text carries its own white halo (four offset shadows — `paint-order: stroke` is not reliable on a
+ * plain span) and is never allowed to catch pointer events except through its own marker.
+ */
+
+.labelMarker {
+  /* Leaflet gives a divIcon a white background + border by default. */
+  background: none;
+  border: none;
+}
+
+.label {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-ui);
+  line-height: 1;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.labelStation,
+.labelRoad,
+.labelBuilding {
+  text-shadow:
+    0 0 3px #fff,
+    1px 1px 0 #fff,
+    -1px 1px 0 #fff,
+    1px -1px 0 #fff,
+    -1px -1px 0 #fff;
+}
+
+.labelStation {
+  padding: 2px 0;
+  color: #1c1c1e;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.labelRoad {
+  padding: 2px 0;
+  color: #3a3a3c;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.labelBuilding {
+  padding: 2px 0;
+  color: #4b4b50;
+  font-size: 11px;
+  font-weight: 500;
+  font-style: normal;
+}
+
+/* A railway name rides in a pill of the line colour: it doubles as that line's legend entry. */
+.labelRailway {
+  --label-colour: #4a4a52;
+  padding: 3px 7px;
+  border-radius: 9px;
+  background: var(--label-colour);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.92), 0 1px 3px rgba(0, 0, 0, 0.3);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 /* ---- Live player markers ---- */

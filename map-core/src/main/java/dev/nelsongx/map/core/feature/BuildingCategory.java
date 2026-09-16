@@ -8,6 +8,13 @@ public enum BuildingCategory {
   COMMERCIAL("commercial"),
   PUBLIC("public"),
   INDUSTRIAL("industrial"),
+  GOVERNMENT("government"),
+  EDUCATION("education"),
+  HEALTHCARE("healthcare"),
+  RELIGIOUS("religious"),
+  FARM("farm"),
+  STORAGE("storage"),
+  LANDMARK("landmark"),
   OTHER("other");
 
   private final String wireName;
@@ -28,5 +35,17 @@ public enum BuildingCategory {
       }
     }
     return Optional.empty();
+  }
+
+  /** Every wire name, in declaration order, comma-separated — for error messages. */
+  public static String wireNames() {
+    StringBuilder sb = new StringBuilder();
+    for (BuildingCategory value : values()) {
+      if (sb.length() > 0) {
+        sb.append(", ");
+      }
+      sb.append(value.wireName);
+    }
+    return sb.toString();
   }
 }

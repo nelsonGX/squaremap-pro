@@ -39,14 +39,21 @@ public final class FeatureMarkers {
   /** @return {@code CATEGORY_COLOURS} in styles.ts */
   public static int categoryRgb(BuildingCategory category) {
     if (category == null) {
-      return 0xc9a227;
+      return 0x98989f;
     }
     return switch (category) {
-      case RESIDENTIAL -> 0xe76f51;
-      case COMMERCIAL -> 0x2a9df4;
-      case PUBLIC -> 0x9b5de5;
-      case INDUSTRIAL -> 0x6c757d;
-      case OTHER -> 0xc9a227;
+      case RESIDENTIAL -> 0xbf8a5c;
+      case COMMERCIAL -> 0xe8912f;
+      case PUBLIC -> 0x6d5fc7;
+      case INDUSTRIAL -> 0x6a7d8c;
+      case GOVERNMENT -> 0x5b7fa6;
+      case EDUCATION -> 0xa9689b;
+      case HEALTHCARE -> 0xc9645e;
+      case RELIGIOUS -> 0xb39a5f;
+      case FARM -> 0x7d9a55;
+      case STORAGE -> 0x8b7a63;
+      case LANDMARK -> 0x4f9a92;
+      case OTHER -> 0x98989f;
     };
   }
 
@@ -147,6 +154,13 @@ public final class FeatureMarkers {
       case COMMERCIAL -> "Commercial";
       case PUBLIC -> "Public";
       case INDUSTRIAL -> "Industrial";
+      case GOVERNMENT -> "Government";
+      case EDUCATION -> "Education";
+      case HEALTHCARE -> "Healthcare";
+      case RELIGIOUS -> "Religious";
+      case FARM -> "Farm";
+      case STORAGE -> "Storage";
+      case LANDMARK -> "Landmark";
       case OTHER -> "Other";
     };
   }

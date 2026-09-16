@@ -112,6 +112,26 @@ export function LayersIcon(p: IconProps) {
   );
 }
 
+/** SF Symbols `list.bullet.rectangle`, for the map legend. */
+export function LegendIcon(p: IconProps) {
+  return (
+    <svg {...svgProps(p)} {...stroke}>
+      <rect x="3.4" y="4.6" width="17.2" height="14.8" rx="3.2" />
+      <path d="M7.4 9.4h.01M7.4 12.6h.01M7.4 15.8h.01" strokeWidth="2.4" />
+      <path d="M10.6 9.4h6.2M10.6 12.6h6.2M10.6 15.8h3.6" />
+    </svg>
+  );
+}
+
+/** SF Symbols `chevron.down`. */
+export function ChevronIcon(p: IconProps) {
+  return (
+    <svg {...svgProps(p)} {...stroke}>
+      <path d="m6.5 9.5 5.5 5.5 5.5-5.5" />
+    </svg>
+  );
+}
+
 /** SF Symbols `person.crop.circle` — Apple's account glyph. */
 export function PersonIcon(p: IconProps) {
   return (

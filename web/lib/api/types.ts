@@ -19,7 +19,20 @@ export type AuthMe = { loggedIn: false } | { loggedIn: true; uuid: string; name:
 export const FEATURE_TYPES = ["building", "road", "railway", "station"] as const;
 export type FeatureType = (typeof FEATURE_TYPES)[number];
 
-export const BUILDING_CATEGORIES = ["residential", "commercial", "public", "industrial", "other"] as const;
+export const BUILDING_CATEGORIES = [
+  "residential",
+  "commercial",
+  "public",
+  "industrial",
+  "government",
+  "education",
+  "healthcare",
+  "religious",
+  "farm",
+  "storage",
+  "landmark",
+  "other",
+] as const;
 export type BuildingCategory = (typeof BUILDING_CATEGORIES)[number];
 
 export const ROAD_CLASSES = ["highway", "main", "street", "path"] as const;

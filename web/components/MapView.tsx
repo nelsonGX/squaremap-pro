@@ -7,7 +7,7 @@
  * Client-only: loaded through `next/dynamic` with `ssr: false` because Leaflet and leaflet-geoman
  * touch `window` (geoman extends the global `L` that Leaflet's UMD build installs on import).
  */
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "@geoman-io/leaflet-geoman-free";
@@ -17,7 +17,9 @@ import { SNAP_DISTANCE_PX, blocksPerPixel } from "../lib/editor/geometry";
 import { blockBounds, boundsToLatLngs, flyTarget, vertexLatLngs } from "../lib/features/geometry";
 import { legLineStyle } from "../lib/navigation/legs";
 import { playerColour, playerTitle, screenHeading } from "../lib/players/players";
-import { groupInterchanges, interchangeColours, interchangeLabel } from "../lib/features/interchange";
+import { groupInterchanges, interchangeColours, interchangeLabel, type Interchange } from "../lib/features/interchange";
+import { detailKey, mapDetail, FULL_DETAIL, type MapDetail } from "../lib/features/detail";
+import { labelCandidates, labelWidth, placeLabels, type LabelBox, type LabelCandidate } from "../lib/features/labels";
 import {
   displayName,
   drawOrder,
@@ -179,20 +181,69 @@ function escapeHtml(s: string): string {
  * in that line's colour. A conic gradient draws the arcs; a single line still renders (one arc
  * covering the whole ring), which keeps the icon identical in shape to a lone station's circle.
  */
-function interchangeIcon(colours: readonly string[], stationCount: number): L.DivIcon {
+function interchangeIcon(colours: readonly string[], stationCount: number, scale = 1): L.DivIcon {
   const n = Math.max(colours.length, 1);
   const step = 360 / n;
   const stops = colours.length
     ? colours.map((c, i) => `${escapeHtml(c)} ${i * step}deg ${(i + 1) * step}deg`).join(", ")
     : `${UNKNOWN_RAILWAY_COLOUR} 0deg 360deg`;
+  // Shrinks with the network, but never below a tappable dot.
+  const size = Math.round(22 * Math.min(1, Math.max(0.65, scale)));
   return L.divIcon({
     className: "",
     html:
-      `<div class="${styles.interchange}" style="--interchange-ring:conic-gradient(${stops})">` +
+      `<div class="${styles.interchange}" style="--interchange-ring:conic-gradient(${stops});--interchange-size:${size}px">` +
       `<span class="${styles.interchangeCount}">${stationCount}</span>` +
       `</div>`,
-    iconSize: [22, 22],
-    iconAnchor: [11, 11],
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+}
+
+/** Font size per label kind, and the box height placement reserves for it. */
+const LABEL_FONT = { interchange: 12, station: 12, railway: 11, road: 11.5, building: 11 } as const;
+const LABEL_HEIGHT = { interchange: 16, station: 16, railway: 18, road: 15, building: 15 } as const;
+
+/**
+ * Screen box a candidate would occupy, given its projected anchor. Transit names hang to the right
+ * of their dot (the dot is the location, the text only annotates it); everything else is centred on
+ * the line or footprint it names.
+ */
+function labelBox(c: LabelCandidate, anchor: { x: number; y: number }): LabelBox {
+  const width = labelWidth(c.text, LABEL_FONT[c.kind]) + (c.kind === "railway" ? 14 : 0);
+  const height = LABEL_HEIGHT[c.kind];
+  const right = c.kind === "station" || c.kind === "interchange";
+  return {
+    id: c.id,
+    priority: c.priority,
+    x: right ? anchor.x + 11 : anchor.x - width / 2,
+    y: anchor.y - height / 2,
+    width,
+    height,
+  };
+}
+
+/**
+ * One map label. A railway gets a filled pill in its own colour (it doubles as the legend for that
+ * line); everything else is text with a white halo, which is how a name stays readable over
+ * arbitrary pixel art without a plate behind it.
+ */
+function labelIcon(c: LabelCandidate, box: LabelBox): L.DivIcon {
+  const kindClass =
+    c.kind === "railway"
+      ? styles.labelRailway
+      : c.kind === "station" || c.kind === "interchange"
+        ? styles.labelStation
+        : c.kind === "road"
+          ? styles.labelRoad
+          : styles.labelBuilding;
+  const colour = c.colour ? ` style="--label-colour:${escapeHtml(c.colour)}"` : "";
+  return L.divIcon({
+    className: styles.labelMarker,
+    html: `<span class="${styles.label} ${kindClass}"${colour}>${escapeHtml(c.text)}</span>`,
+    iconSize: [box.width, box.height],
+    // Anchor is relative to the label box: Leaflet places the box so this point lands on the latlng.
+    iconAnchor: [c.kind === "station" || c.kind === "interchange" ? -11 : box.width / 2, box.height / 2],
   });
 }
 
@@ -244,6 +295,15 @@ export default function MapView(props: MapViewProps) {
   const playerClickRef = useRef(onPlayerClick);
   /** The DOM event of the last feature click, so the map click it bubbles into is not "empty map". */
   const featureClickEventRef = useRef<Event | null>(null);
+  /** Level of detail for the current zoom: stroke scale, what is drawn at all, which labels show. */
+  const [detail, setDetail] = useState<MapDetail>(FULL_DETAIL);
+  const labelLayerRef = useRef<L.LayerGroup | null>(null);
+  /** Labels the current feature set wants; which of them fit is decided per view in `renderLabels`. */
+  const labelPlanRef = useRef<readonly LabelCandidate[]>([]);
+  /** Labels stop taking clicks while drawing or picking route points, so the map gets them instead. */
+  const labelsInert = editing !== null || navigation !== null;
+  const labelsInertRef = useRef(labelsInert);
+  const renderLabelsRef = useRef<() => void>(() => {});
 
   /** squaremap `LayerControl.switchTileLayer`: raise the layer that just finished loading. */
   const swapTileLayers = useCallback(() => {
@@ -261,7 +321,46 @@ export default function MapView(props: MapViewProps) {
     editingRef.current = editing;
     navigationRef.current = navigation;
     maxZoomRef.current = zoom.max;
-  }, [onSelect, onPlayerClick, editing, navigation, zoom.max]);
+    labelsInertRef.current = labelsInert;
+  }, [onSelect, onPlayerClick, editing, navigation, zoom.max, labelsInert]);
+
+  /**
+   * Places the labels that fit the current view. Runs on every move and zoom, because which names
+   * survive the collision pass depends on where things land on screen, not only on what exists.
+   */
+  const renderLabels = useCallback(() => {
+    const map = mapRef.current;
+    const group = labelLayerRef.current;
+    if (!map || !group) return;
+    group.clearLayers();
+    const size = map.getSize();
+    const planned = labelPlanRef.current.map((c) => {
+      const latLng = ll(vertexLatLngs([c.anchor], maxZoomRef.current)[0]!);
+      return { c, latLng, box: labelBox(c, map.latLngToContainerPoint(latLng)) };
+    });
+    const kept = placeLabels(planned.map((p) => p.box), { width: size.x, height: size.y });
+    for (const { c, latLng, box } of planned) {
+      if (!kept.has(box.id)) continue;
+      const marker = L.marker(latLng, {
+        icon: labelIcon(c, box),
+        pane: "labels",
+        keyboard: false,
+        interactive: !labelsInertRef.current,
+        snapIgnore: true,
+      });
+      if (!labelsInertRef.current) {
+        marker.on("click", (e: L.LeafletMouseEvent) => {
+          L.DomEvent.stopPropagation(e);
+          selectRef.current(c.featureId);
+        });
+      }
+      marker.addTo(group);
+    }
+  }, []);
+
+  useEffect(() => {
+    renderLabelsRef.current = renderLabels;
+  }, [renderLabels]);
 
   // Create the map once.
   useEffect(() => {
@@ -281,7 +380,8 @@ export default function MapView(props: MapViewProps) {
     map.createPane("halo").style.zIndex = "390";
     map.createPane("draft").style.zIndex = "450";
     map.createPane("route").style.zIndex = "420";
-    // Players ride above every drawn layer but below Leaflet's own popups/controls.
+    // Labels sit above every drawn feature, and players above them.
+    map.createPane("labels").style.zIndex = "500";
     map.createPane("players").style.zIndex = "620";
     routeRendererRef.current = L.canvas({ pane: "route" });
     haloRendererRef.current = L.canvas({ pane: "halo" });
@@ -309,12 +409,25 @@ export default function MapView(props: MapViewProps) {
     });
     haloLayerRef.current = L.layerGroup().addTo(map);
     featureLayerRef.current = L.layerGroup().addTo(map);
+    labelLayerRef.current = L.layerGroup().addTo(map);
     draftLayerRef.current = L.layerGroup().addTo(map);
     routeHighlightRef.current = L.layerGroup().addTo(map);
     routeLayerRef.current = L.layerGroup().addTo(map);
     endpointLayerRef.current = L.layerGroup().addTo(map);
     playerLayerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
+    /*
+     * Level of detail is quantised (`detailKey`), so a zoom that does not change what is drawn does
+     * not rebuild any layers; labels, whose collisions depend on the pan, are replaced on every
+     * `moveend` (which Leaflet also fires at the end of a zoom).
+     */
+    const syncDetail = () => {
+      const next = mapDetail(map.getZoom(), maxZoomRef.current);
+      setDetail((prev) => (detailKey(next) === detailKey(prev) ? prev : next));
+    };
+    map.on("zoomend", syncDetail);
+    map.on("moveend", () => renderLabelsRef.current());
+    syncDetail();
     const ro = new ResizeObserver(() => map.invalidateSize());
     ro.observe(el);
     const playerMarkers = playerMarkersRef.current;
@@ -356,6 +469,8 @@ export default function MapView(props: MapViewProps) {
       .setMinZoom(0)
       .setMaxZoom(zoom.max + zoom.extra)
       .setView(ll(toLatLng(spawn.x, spawn.z, zoom.max)), zoom.def);
+    const reset = mapDetail(map.getZoom(), zoom.max);
+    setDetail((prev) => (detailKey(reset) === detailKey(prev) ? prev : reset));
     // worldKey intentionally drives the reset; spawn/zoom values are part of it.
   }, [tileTemplate, worldKey, zoom.max, zoom.def, zoom.extra, spawn.x, spawn.z, swapTileLayers]);
 
@@ -384,11 +499,16 @@ export default function MapView(props: MapViewProps) {
      * Stations close enough to be one place are drawn as a single interchange marker instead of as
      * overlapping discs, so the ids in here are skipped by the per-feature loop below.
      */
-    const interchanges = groupInterchanges(features).filter((g) => g.stations.length > 1);
+    const allInterchanges: Interchange[] = groupInterchanges(features);
+    const interchanges = allInterchanges.filter((g) => g.stations.length > 1);
     const merged = new Set(interchanges.flatMap((g) => g.stations.map((s) => s.id)));
     for (const f of drawOrder(features)) {
       if (merged.has(f.id)) continue;
-      const style = featureStyle(f, colours);
+      // Level of detail: footprints and lone station dots are sub-pixel noise once zoomed out far
+      // enough, and dropping them is what lets the road and rail network read at the world view.
+      if (f.type === "building" && !detail.buildings) continue;
+      if (f.type === "station" && detail.stations !== "all") continue;
+      const style = featureStyle(f, colours, detail);
       const latlngs = vertexLatLngs(f.geometry, zoom.max).map(ll);
       const first = latlngs[0];
       if (!first) continue;
@@ -426,12 +546,12 @@ export default function MapView(props: MapViewProps) {
       }
     }
     // Interchanges, on top of the individual stations.
-    for (const g of interchanges) {
+    for (const g of detail.stations === "none" ? [] : interchanges) {
       const label = interchangeLabel(g, (st) => displayName(st));
       const ringColours = interchangeColours(g, colours, UNKNOWN_RAILWAY_COLOUR);
       const target = g.stations[0]!.id;
       L.marker(ll(vertexLatLngs([g.point], zoom.max)[0]!), {
-        icon: interchangeIcon(ringColours, g.stations.length),
+        icon: interchangeIcon(ringColours, g.stations.length, detail.scale),
         keyboard: false,
         snapIgnore: true,
         zIndexOffset: 500,
@@ -447,7 +567,14 @@ export default function MapView(props: MapViewProps) {
         })
         .addTo(group);
     }
-  }, [features, allFeatures, zoom.max]);
+    labelPlanRef.current = labelCandidates(features, allInterchanges, detail, colours);
+    renderLabels();
+  }, [features, allFeatures, zoom.max, detail, renderLabels]);
+
+  // Labels take clicks in view mode only, so flipping mode re-creates them.
+  useEffect(() => {
+    renderLabels();
+  }, [labelsInert, renderLabels]);
 
   // Selection halo.
   useEffect(() => {

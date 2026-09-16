@@ -122,7 +122,7 @@ block centre (`x + 0.5`, `z + 0.5`) and convert to Leaflet with squaremap's CRS.
 
 | `type`     | `geometry`                          | `props`                                                          |
 |------------|-------------------------------------|------------------------------------------------------------------|
-| `building` | closed ring, ≥3 vertices, first ≠ last | `category`: `residential·commercial·public·industrial·other`, `description` |
+| `building` | closed ring, ≥3 vertices, first ≠ last | `category`: `residential·commercial·public·industrial·government·education·healthcare·religious·farm·storage·landmark·other`, `description` |
 | `road`     | polyline, ≥2 vertices               | `roadClass`: `highway·main·street·path`                           |
 | `railway`  | polyline, ≥2 vertices               | `colour`: `#rrggbb`                                               |
 | `station`  | exactly 1 vertex, on a vertex of `railwayId` | `railwayId`                                              |

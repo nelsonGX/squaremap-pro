@@ -58,6 +58,7 @@ import { PLAYER_POLL_MS, playerColour, playersInWorld, playerTitle } from "../li
 import { DirectionsHeader, DirectionsResults, type Endpoint, type RouteView, type Which } from "./DirectionsPanel";
 import EditorPanel from "./EditorPanel";
 import FeatureCard from "./FeatureCard";
+import Legend from "./Legend";
 import {
   CloseIcon,
   DirectionsIcon,
@@ -1121,7 +1122,7 @@ export default function ViewerApp() {
         )}
       </div>
 
-      {/* World picker, bottom left, as Google Maps' basemap card. */}
+      {/* World picker and legend, bottom left (column-reverse: the legend stacks above the picker). */}
       <div className={styles.bottomLeft}>
         <button
           type="button"
@@ -1154,6 +1155,7 @@ export default function ViewerApp() {
             ))}
           </ul>
         )}
+        <Legend features={allFeatures} onSelectRailway={(f) => openFeature(f, { fly: true, fromResults: false })} />
       </div>
 
       {/* Round map controls, bottom right, above Leaflet's zoom buttons. */}

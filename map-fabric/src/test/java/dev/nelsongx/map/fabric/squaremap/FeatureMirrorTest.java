@@ -58,9 +58,9 @@ class FeatureMirrorTest {
     assertEquals(Shape.POLYGON, s.shape());
     assertEquals(List.of(new MapPoint(0.5, 0.5), new MapPoint(4.5, 0.5), new MapPoint(4.5, -2.5)),
         s.points());
-    assertEquals(0x9b5de5, s.strokeRgb());
+    assertEquals(FeatureMarkers.categoryRgb(BuildingCategory.PUBLIC), s.strokeRgb());
     assertTrue(s.fill());
-    assertEquals(0x9b5de5, s.fillRgb());
+    assertEquals(FeatureMarkers.categoryRgb(BuildingCategory.PUBLIC), s.fillRgb());
     assertEquals(0.4, s.fillOpacity());
     assertEquals("Town &lt;Hall&gt;", s.hoverTooltip());
     assertEquals("<b>Town &lt;Hall&gt;</b><br>Public building", s.clickTooltip());
@@ -106,8 +106,9 @@ class FeatureMirrorTest {
     Marker polygon = SquaremapMarkers.toMarker(FeatureMarkers.toSpec(feature("f_b",
         new BuildingData(vs(0, 0, 4, 0, 4, 4), "H", BuildingCategory.RESIDENTIAL, "")), id -> null));
     assertTrue(polygon instanceof Polygon);
-    assertEquals(new Color(0xe76f51), polygon.markerOptions().strokeColor());
-    assertEquals(new Color(0xe76f51), polygon.markerOptions().fillColor());
+    Color residential = new Color(FeatureMarkers.categoryRgb(BuildingCategory.RESIDENTIAL));
+    assertEquals(residential, polygon.markerOptions().strokeColor());
+    assertEquals(residential, polygon.markerOptions().fillColor());
     assertEquals("H", polygon.markerOptions().hoverTooltip());
 
     Marker line = SquaremapMarkers.toMarker(FeatureMarkers.toSpec(feature("f_r",

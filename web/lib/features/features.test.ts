@@ -3,8 +3,11 @@ import type { Feature, RoadClass } from "../api/types";
 import { blockBounds, boundsToLatLngs, flyTarget, polylineLength, ringArea, vertexLatLngs } from "./geometry";
 import { ALL_VISIBLE, countByType, formatTimestamp, visibleFeatures } from "./layers";
 import { searchFeatures } from "./search";
+import { BUILDING_CATEGORIES } from "../api/types";
 import {
   CATEGORY_COLOURS,
+  CATEGORY_LABELS,
+  CATEGORY_STROKES,
   displayName,
   drawOrder,
   featureStyle,
@@ -43,6 +46,16 @@ describe("styles", () => {
       expect(s.main.fillColor).toBe(CATEGORY_COLOURS.public);
       expect(s.main.fillOpacity).toBeGreaterThan(0);
     }
+  });
+
+  it("every building category has a tint, an outline and a label", () => {
+    for (const c of BUILDING_CATEGORIES) {
+      expect(CATEGORY_COLOURS[c]).toMatch(/^#[0-9a-f]{6}$/);
+      expect(CATEGORY_STROKES[c]).toMatch(/^#[0-9a-f]{6}$/);
+      expect(CATEGORY_LABELS[c]).toBeTruthy();
+    }
+    // Tints stay distinguishable: no two categories share one.
+    expect(new Set(BUILDING_CATEGORIES.map((c) => CATEGORY_COLOURS[c])).size).toBe(BUILDING_CATEGORIES.length);
   });
 
   it("road width decreases highway > main > street > path", () => {

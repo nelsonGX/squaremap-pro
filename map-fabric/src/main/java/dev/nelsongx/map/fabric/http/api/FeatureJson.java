@@ -200,7 +200,7 @@ public final class FeatureJson {
           cat = BuildingCategory.fromWire(category).orElse(null);
           if (cat == null) {
             errors.add(new ValidationError("category",
-                "category must be one of residential, commercial, public, industrial, other"));
+                "category must be one of " + BuildingCategory.wireNames()));
           }
         }
         String description = optString(props, "description", "description", errors);
