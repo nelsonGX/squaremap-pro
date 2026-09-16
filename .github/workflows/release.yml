@@ -1,0 +1,80 @@
+name: Release
+
+# Publishes the mod jar as a GitHub release whenever a version tag is pushed.
+#   git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (without the leading v), e.g. 0.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # The jar version comes from the tag, not gradle.properties (which holds -SNAPSHOT).
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version='${{ inputs.version }}'
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Toolchain is Java 21 (CLAUDE.md); auto-download is off, so the JDK must be present.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # `./gradlew build` shells out to npm in web/ for the static export bundled into the jar.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      - name: Web tests
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+
+      # `build` runs :map-core:test and :map-fabric:test, then the loom remapJar.
+      - name: Build
+        run: ./gradlew build --no-daemon -Pversion=${{ steps.version.outputs.version }}
+
+      - name: Collect jar
+        id: jar
+        run: |
+          # Loom's remapJar is the classifier-less one; -dev/-sources jars are not shipped.
+          jar=$(ls map-fabric/build/libs/*.jar | grep -Ev -- '-(dev|sources|javadoc)\.jar$')
+          test -f "$jar"
+          echo "path=$jar" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: squaremap-pro-${{ steps.version.outputs.version }}
+          path: ${{ steps.jar.outputs.path }}
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', steps.version.outputs.version) || github.ref_name }}
+          name: squaremap-pro ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          files: ${{ steps.jar.outputs.path }}
