@@ -12,6 +12,7 @@ import {
   legView,
   modesParam,
   RAIL_FALLBACK_COLOUR,
+  ROAD_LEG_COLOUR,
   routePath,
   routePoints,
   routeStatusMessage,
@@ -164,7 +165,7 @@ describe("leg presentation", () => {
 
   it("styles: walk dotted grey, road blue, rail in railway colour (fallback by name)", () => {
     expect(legLineStyle(legs[0]!, []).dashArray).toBeTruthy();
-    expect(legLineStyle(legs[1]!, []).color).toBe("#1a73e8");
+    expect(legLineStyle(legs[1]!, []).color).toBe(ROAD_LEG_COLOUR);
     expect(legLineStyle(legs[3]!, [rail]).color).toBe("#d62828");
     expect(legLineStyle({ ...legs[3]!, name: "Unknown" }, [rail]).color).toBe(RAIL_FALLBACK_COLOUR);
   });

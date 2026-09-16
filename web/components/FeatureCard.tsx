@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import type { Feature } from "../lib/api/types";
 import { polylineLength, ringArea } from "../lib/features/geometry";
+import { interchangePeers } from "../lib/features/interchange";
 import { formatTimestamp } from "../lib/features/layers";
 import {
   CATEGORY_COLOURS,
@@ -75,7 +76,22 @@ export default function FeatureCard({ feature: f, allFeatures, onClose, onOpen, 
       accent = railway?.type === "railway" ? railway.props.colour : UNKNOWN_RAILWAY_COLOUR;
       const p = f.geometry[0]!;
       facts.push({ label: "Location", value: `${p.x}, ${p.z}` });
-      links = { title: "Line", items: railway ? [railway] : [] };
+      /*
+       * A station belongs to one railway, so a crossing served by several lines is several station
+       * features. Nearby ones are drawn as a single interchange, and the card follows: it lists
+       * every line served here, not just this feature's own.
+       */
+      const peers = interchangePeers(allFeatures, f.id);
+      const lines: Feature[] = [];
+      for (const id of [railwayId, ...peers.map((s) => s.props.railwayId)]) {
+        if (lines.some((r) => r.id === id)) continue;
+        const r = allFeatures.find((x) => x.id === id && x.type === "railway");
+        if (r) lines.push(r);
+      }
+      if (peers.length > 0) {
+        facts.push({ label: "Interchange", value: `${peers.length + 1} stations · ${lines.length} lines` });
+      }
+      links = { title: lines.length > 1 ? "Lines" : "Line", items: lines };
       break;
     }
   }

@@ -18,6 +18,7 @@ import {
   snapTargets,
   toBlockXZ,
 } from "./geometry";
+import { UNKNOWN_RAILWAY_COLOUR } from "../features/styles";
 import { codePointLength, detailsByField, findSelfIntersection, validateInput } from "./validate";
 
 const meta = {
@@ -256,7 +257,7 @@ describe("draftStyle", () => {
     const s = run([{ type: "start_edit", feature: rail }, { type: "set_field", field: "colour", value: "#00ff00" }]);
     expect(draftStyle(s.draft!, new Map())).toMatchObject({ shape: "line", main: { color: "#00ff00" } });
     const bad = editorReducer(s, { type: "set_field", field: "colour", value: "#0f" });
-    expect(draftStyle(bad.draft!, new Map()).shape === "line" && (draftStyle(bad.draft!, new Map()) as { main: { color: string } }).main.color).toBe("#374151");
+    expect(draftStyle(bad.draft!, new Map()).shape === "line" && (draftStyle(bad.draft!, new Map()) as { main: { color: string } }).main.color).toBe(UNKNOWN_RAILWAY_COLOUR);
     const st = run([{ type: "start_edit", feature: station }]);
     expect(draftStyle(st.draft!, new Map([["rail", "#ff0000"]]))).toMatchObject({ shape: "circle", main: { color: "#ff0000" } });
   });

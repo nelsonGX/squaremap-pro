@@ -55,26 +55,30 @@ export interface DirectionsResultsProps {
   onRetry: () => void;
 }
 
+/**
+ * Travel-mode glyphs in the SF Symbols register Apple Maps uses for its mode picker:
+ * `figure.walk`, `car.fill` and `tram.fill`.
+ */
 function ModeIcon({ mode, colour }: { mode: RouteMode; colour: string }) {
   const common = { width: 18, height: 18, viewBox: "0 0 24 24", "aria-hidden": true } as const;
   switch (mode) {
     case "walk":
       return (
         <svg {...common} fill={colour}>
-          <circle cx="13" cy="4" r="2" />
-          <path d="M10.5 8.5 7 10.5V15h2v-3.3l1.3-.8L9 21h2.2l1.3-6 2 2.1V21h2v-5.4l-2.3-2.4.6-3a6 6 0 0 0 4.2 2.3v-2a4 4 0 0 1-3.2-2l-1-1.6a2 2 0 0 0-2.5-.8z" />
+          <circle cx="13.6" cy="4.1" r="2.1" />
+          <path d="M11.9 7.4a2 2 0 0 0-1.1.5L7.6 10.4a1 1 0 0 0-.35.76V15a1 1 0 0 0 2 0v-3.3l1.35-.9-1.6 9.05a1.05 1.05 0 0 0 2.07.37l1.28-5.05 1.75 1.9V20a1.05 1.05 0 0 0 2.1 0v-3.5a1.4 1.4 0 0 0-.37-.95l-2.1-2.25.62-3.1a5.9 5.9 0 0 0 3.8 2.1 1 1 0 0 0 .2-1.99 4 4 0 0 1-2.96-1.94l-.88-1.44a2 2 0 0 0-1.6-.95z" />
         </svg>
       );
     case "road":
       return (
-        <svg {...common} fill="none" stroke={colour} strokeWidth="2.2" strokeLinecap="round">
-          <path d="M8 3 5 21M16 3l3 18M12 4v3M12 11v3M12 18v2" />
+        <svg {...common} fill={colour}>
+          <path d="M5.4 11.2 6.6 7.5A2.6 2.6 0 0 1 9.1 5.7h5.8a2.6 2.6 0 0 1 2.5 1.8l1.2 3.7a2.4 2.4 0 0 1 1.4 2.17V17a1.2 1.2 0 0 1-1.2 1.2h-.6a1.2 1.2 0 0 1-1.2-1.2v-.4H7v.4A1.2 1.2 0 0 1 5.8 18.2h-.6A1.2 1.2 0 0 1 4 17v-3.63a2.4 2.4 0 0 1 1.4-2.17zm1.9-.3h9.4l-.9-2.8a.85.85 0 0 0-.8-.6H9.1a.85.85 0 0 0-.8.6zm.35 2.05a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2zm8.7 0a1.1 1.1 0 1 0 0 2.2 1.1 1.1 0 0 0 0-2.2z" />
         </svg>
       );
     case "rail":
       return (
         <svg {...common} fill={colour}>
-          <path d="M7 3h10a3 3 0 0 1 3 3v9a3 3 0 0 1-2.2 2.9L19.5 20h-2.3l-1.5-2H8.3l-1.5 2H4.5l1.7-2.1A3 3 0 0 1 4 15V6a3 3 0 0 1 3-3zm0 2a1 1 0 0 0-1 1v4h12V6a1 1 0 0 0-1-1H7zm1 8a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm8 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z" />
+          <path d="M8.6 3.5h6.8a3.1 3.1 0 0 1 3.1 3.1v8.5a3.1 3.1 0 0 1-2.45 3.03l1.35 1.72a.6.6 0 0 1-.47.97h-1.06a.9.9 0 0 1-.71-.35l-1.5-1.92H10.3l-1.5 1.92a.9.9 0 0 1-.71.35H7.03a.6.6 0 0 1-.47-.97l1.35-1.72A3.1 3.1 0 0 1 5.5 15.1V6.6a3.1 3.1 0 0 1 3.1-3.1zm-.1 2a1.1 1.1 0 0 0-1.1 1.1v3.3h9.2V6.6a1.1 1.1 0 0 0-1.1-1.1zm.85 6.7a1.35 1.35 0 1 0 0 2.7 1.35 1.35 0 0 0 0-2.7zm6.3 0a1.35 1.35 0 1 0 0 2.7 1.35 1.35 0 0 0 0-2.7z" />
         </svg>
       );
   }

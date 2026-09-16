@@ -10,6 +10,8 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  // The map is edge-to-edge; matching the browser/OS chrome to the map canvas keeps it seamless.
+  themeColor: "#17171a",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

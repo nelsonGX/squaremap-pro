@@ -55,10 +55,20 @@ describe("styles", () => {
     expect(w("street")).toBeGreaterThan(w("path"));
   });
 
-  it("railways are dashed in their colour", () => {
+  it("railways are a solid stroke in their colour, hatched with white sleeper ticks", () => {
     const s = featureStyle(railway, new Map());
     expect(s.shape === "line" && s.main.color).toBe("#d62828");
-    expect(s.shape === "line" && s.main.dashArray).toBeTruthy();
+    // The body is solid; the ticks live on the topmost overlay, not as holes punched in the body.
+    expect(s.shape === "line" && s.main.dashArray).toBeUndefined();
+    expect(s.shape === "line" && s.casing?.color).toBe("#ffffff");
+    expect(s.shape === "line" && s.overlay?.dashArray).toBeTruthy();
+  });
+
+  it("roads have no overlay, so they cannot be confused with the railway hatch", () => {
+    for (const c of ["highway", "main", "street", "path"] as const) {
+      const s = featureStyle(road("x", "x", c), new Map());
+      expect(s.shape === "line" && s.overlay).toBeFalsy();
+    }
   });
 
   it("stations are circles stroked with their railway colour (fallback when unknown)", () => {

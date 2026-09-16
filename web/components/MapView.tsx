@@ -17,7 +17,15 @@ import { SNAP_DISTANCE_PX, blocksPerPixel } from "../lib/editor/geometry";
 import { blockBounds, boundsToLatLngs, flyTarget, vertexLatLngs } from "../lib/features/geometry";
 import { legLineStyle } from "../lib/navigation/legs";
 import { playerColour, playerTitle, screenHeading } from "../lib/players/players";
-import { displayName, drawOrder, featureStyle, railwayColourMap, type FeatureStyle } from "../lib/features/styles";
+import { groupInterchanges, interchangeColours, interchangeLabel } from "../lib/features/interchange";
+import {
+  displayName,
+  drawOrder,
+  featureStyle,
+  railwayColourMap,
+  UNKNOWN_RAILWAY_COLOUR,
+  type FeatureStyle,
+} from "../lib/features/styles";
 import { SQUAREMAP_TILE_SIZE, toBlock, toLatLng, toPoint, type LatLngLike } from "../lib/squaremapCrs";
 import { playerHeadUrl, type WorldSettingsZoom } from "../lib/squaremapSettings";
 import styles from "./MapView.module.css";
@@ -33,8 +41,11 @@ const CLEAR_PNG =
 
 /** Must match the panel breakpoint in ViewerApp.module.css. */
 const SHEET_BREAKPOINT_PX = 700;
-const HALO_COLOUR = "#1a73e8";
-const DRAW_COLOUR = "#1a73e8";
+/** Apple's system blue: the selection halo, the editor's draft geometry and the route share it. */
+const HALO_COLOUR = "#007aff";
+const DRAW_COLOUR = "#007aff";
+/** Apple's system yellow, for the hovered route leg under the route ribbon. */
+const LEG_HIGHLIGHT_COLOUR = "#ffcc00";
 
 export interface FlyRequest {
   featureId: string;
@@ -161,6 +172,28 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) =>
     c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : c === '"' ? "&quot;" : "&#39;",
   );
+}
+
+/**
+ * Marker for an interchange: one white disc whose ring is split into an equal arc per line served,
+ * in that line's colour. A conic gradient draws the arcs; a single line still renders (one arc
+ * covering the whole ring), which keeps the icon identical in shape to a lone station's circle.
+ */
+function interchangeIcon(colours: readonly string[], stationCount: number): L.DivIcon {
+  const n = Math.max(colours.length, 1);
+  const step = 360 / n;
+  const stops = colours.length
+    ? colours.map((c, i) => `${escapeHtml(c)} ${i * step}deg ${(i + 1) * step}deg`).join(", ")
+    : `${UNKNOWN_RAILWAY_COLOUR} 0deg 360deg`;
+  return L.divIcon({
+    className: "",
+    html:
+      `<div class="${styles.interchange}" style="--interchange-ring:conic-gradient(${stops})">` +
+      `<span class="${styles.interchangeCount}">${stationCount}</span>` +
+      `</div>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+  });
 }
 
 function endpointIcon(which: "from" | "to"): L.DivIcon {
@@ -347,7 +380,14 @@ export default function MapView(props: MapViewProps) {
     if (!group) return;
     group.clearLayers();
     const colours = railwayColourMap(allFeatures);
+    /*
+     * Stations close enough to be one place are drawn as a single interchange marker instead of as
+     * overlapping discs, so the ids in here are skipped by the per-feature loop below.
+     */
+    const interchanges = groupInterchanges(features).filter((g) => g.stations.length > 1);
+    const merged = new Set(interchanges.flatMap((g) => g.stations.map((s) => s.id)));
     for (const f of drawOrder(features)) {
+      if (merged.has(f.id)) continue;
       const style = featureStyle(f, colours);
       const latlngs = vertexLatLngs(f.geometry, zoom.max).map(ll);
       const first = latlngs[0];
@@ -379,6 +419,33 @@ export default function MapView(props: MapViewProps) {
           selectRef.current(f.id);
         })
         .addTo(group);
+      // Topmost stroke (a railway's sleeper ticks). Added after `main` so it paints over it, and
+      // non-interactive so clicks and the tooltip still land on `main` underneath.
+      if (style.shape === "line" && style.overlay) {
+        L.polyline(latlngs, { ...style.overlay, interactive: false, snapIgnore: true }).addTo(group);
+      }
+    }
+    // Interchanges, on top of the individual stations.
+    for (const g of interchanges) {
+      const label = interchangeLabel(g, (st) => displayName(st));
+      const ringColours = interchangeColours(g, colours, UNKNOWN_RAILWAY_COLOUR);
+      const target = g.stations[0]!.id;
+      L.marker(ll(vertexLatLngs([g.point], zoom.max)[0]!), {
+        icon: interchangeIcon(ringColours, g.stations.length),
+        keyboard: false,
+        snapIgnore: true,
+        zIndexOffset: 500,
+      })
+        .bindTooltip(label, { direction: "top", offset: [0, -11] })
+        .on("click", (e: L.LeafletMouseEvent) => {
+          featureClickEventRef.current = e.originalEvent;
+          const map = mapRef.current;
+          if (map?.pm.globalDrawModeEnabled()) return;
+          if (editingRef.current?.draft?.type === "station") return;
+          if (navigationRef.current) return;
+          selectRef.current(target);
+        })
+        .addTo(group);
     }
   }, [features, allFeatures, zoom.max]);
 
@@ -396,7 +463,7 @@ export default function MapView(props: MapViewProps) {
     const halo = {
       renderer,
       color: HALO_COLOUR,
-      opacity: 0.45,
+      opacity: 0.32,
       interactive: false,
       snapIgnore: true,
       lineCap: "round",
@@ -567,9 +634,9 @@ export default function MapView(props: MapViewProps) {
     if (!leg) return;
     L.polyline(vertexLatLngs(leg.points, zoom.max).map(ll), {
       renderer,
-      color: "#fbbc04",
+      color: LEG_HIGHLIGHT_COLOUR,
       weight: 18,
-      opacity: 0.55,
+      opacity: 0.6,
       lineCap: "round",
       lineJoin: "round",
       interactive: false,

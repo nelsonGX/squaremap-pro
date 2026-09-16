@@ -1,26 +1,60 @@
 /*
- * Google-Maps-style chrome over a full-screen map: everything here floats on top of the map, so the
+ * Apple-Maps-style chrome over a full-screen map. Everything here floats on top of the map, so the
  * containers are pointer-events:none and only the cards inside take clicks.
  *
- * Tokens follow Google's map UI: white surfaces, #202124 text, #5f6368 secondary, #1a73e8 accent,
- * a 24px pill for the search bar and the two-layer Material elevation shadow.
+ * The design follows Apple's Human Interface tokens rather than Material's:
+ *   · Surfaces are *vibrant materials* — a translucent near-white over a heavy backdrop blur, with
+ *     a 0.5px inner hairline in place of a border and a wide, soft, low-opacity shadow.
+ *   · Colour is the system palette (blue #007AFF, red #FF3B30, green #34C759, orange #FF9500) and
+ *     text uses layered *label* colours (primary solid, secondary/tertiary as black alphas) so it
+ *     stays legible over whatever the material lets through.
+ *   · Radii are large and consistent: 13px cards, 10px controls, full capsules for pills.
+ *   · Type is the SF/Segoe stack at SF's weights — 400 body, 500 emphasis, 600 headings — with
+ *     negative tracking, and tabular figures wherever numbers update in place.
  */
 
 .root {
   position: fixed;
   inset: 0;
   overflow: hidden;
-  color: #202124;
+  color: var(--label);
   font-size: 14px;
-  --surface: #fff;
-  --text: #202124;
-  --text-muted: #5f6368;
-  --divider: #e8eaed;
-  --hover: #f1f3f4;
-  --accent: #1a73e8;
-  --accent-soft: #e8f0fe;
-  --shadow: 0 1px 2px rgba(60, 64, 67, 0.3), 0 2px 6px 2px rgba(60, 64, 67, 0.15);
-  --shadow-lg: 0 2px 6px rgba(60, 64, 67, 0.3), 0 8px 24px 4px rgba(60, 64, 67, 0.15);
+
+  /* Materials */
+  --material: rgba(252, 252, 250, 0.82);
+  --material-strong: rgba(253, 253, 252, 0.94);
+  --material-blur: saturate(180%) blur(20px);
+  --hairline-inset: inset 0 0 0 0.5px rgba(255, 255, 255, 0.6);
+
+  /* Labels (Apple layers text as alphas over the material, not as opaque greys) */
+  --label: #1c1c1e;
+  --label-2: rgba(60, 60, 67, 0.62);
+  --label-3: rgba(60, 60, 67, 0.34);
+  --separator: rgba(60, 60, 67, 0.13);
+  --separator-opaque: #e3e1dd;
+
+  /* Fills for inset controls */
+  --fill: rgba(120, 120, 128, 0.12);
+  --fill-hover: rgba(120, 120, 128, 0.2);
+  --fill-active: rgba(120, 120, 128, 0.28);
+
+  /* System colours */
+  --accent: #007aff;
+  --accent-press: #0062cc;
+  --accent-soft: rgba(0, 122, 255, 0.13);
+  --red: #ff3b30;
+  --red-text: #b3251c;
+  --red-soft: rgba(255, 59, 48, 0.12);
+  --green: #34c759;
+  --green-deep: #248a3d;
+  --orange-text: #8a5300;
+  --orange-soft: rgba(255, 149, 0, 0.14);
+
+  --radius-card: 13px;
+  --radius-control: 10px;
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 6px 20px rgba(0, 0, 0, 0.13);
+  --shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.08), 0 18px 48px rgba(0, 0, 0, 0.2);
 }
 
 .mapArea {
@@ -28,25 +62,27 @@
   inset: 0;
 }
 
+/* Matches the unexplored-ground colour in MapView.module.css, so there is no flash on load. */
 .mapLoading {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
-  color: #cbd5e1;
-  background: #1f2933;
+  color: rgba(235, 235, 245, 0.35);
+  background: #17171a;
+  font-size: 15px;
 }
 
-/* ---- Left rail: search / directions header, chips, and the sheet under them ---- */
+/* ---- Left rail: search / directions header, capsules, and the sheet under them ---- */
 
 .leftRail {
   position: absolute;
   z-index: 1000;
-  top: 12px;
-  left: 12px;
-  bottom: 12px;
-  width: 400px;
-  max-width: calc(100vw - 24px);
+  top: 14px;
+  left: 14px;
+  bottom: 14px;
+  width: 384px;
+  max-width: calc(100vw - 28px);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -57,34 +93,36 @@
   pointer-events: auto;
 }
 
-/* ---- Search omnibox ---- */
+/* ---- Search field ---- */
 
 .omnibox {
   flex: none;
   display: flex;
   align-items: center;
   gap: 2px;
-  height: 48px;
-  padding: 0 6px 0 4px;
-  background: var(--surface);
-  border-radius: 24px;
-  box-shadow: var(--shadow);
+  height: 46px;
+  padding: 0 5px 0 3px;
+  background: var(--material);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  border-radius: 23px;
+  box-shadow: var(--shadow), var(--hairline-inset);
 }
 
 .omniInput {
   flex: 1;
   min-width: 0;
-  font: inherit;
-  font-size: 15px;
-  color: var(--text);
+  font-size: 16px;
+  line-height: 1.2;
+  color: var(--label);
   border: none;
   outline: none;
   background: none;
-  padding: 0 4px;
+  padding: 0 2px;
 }
 
 .omniInput::placeholder {
-  color: var(--text-muted);
+  color: var(--label-2);
 }
 
 .omniInput::-webkit-search-cancel-button {
@@ -97,51 +135,80 @@
   flex: none;
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   border: none;
   border-radius: 50%;
   background: none;
-  color: var(--text-muted);
+  color: var(--label-2);
   cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .omniButton:hover,
 .navIconButton:hover,
 .omniDirections:hover {
-  background: var(--hover);
+  background: var(--fill);
+  color: var(--label);
+}
+
+.omniButton:active,
+.navIconButton:active {
+  background: var(--fill-active);
 }
 
 .omniSearchIcon {
   flex: none;
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
-  color: var(--text-muted);
+  width: 36px;
+  height: 36px;
+  color: var(--label-2);
 }
 
 .omniDivider {
   flex: none;
   width: 1px;
-  height: 24px;
-  margin: 0 2px;
-  background: var(--divider);
+  height: 22px;
+  margin: 0 3px;
+  background: var(--separator);
 }
 
+/* Apple puts its primary action in a filled blue capsule, not a bare glyph. */
 .omniDirections {
-  color: var(--accent);
+  width: 34px;
+  height: 34px;
+  margin-right: 1px;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 122, 255, 0.35);
 }
 
-/* ---- Category chips ---- */
+.omniDirections:hover {
+  background: var(--accent-press);
+  color: #fff;
+}
+
+.omniDirections:active {
+  background: var(--accent-press);
+  transform: scale(0.94);
+}
+
+/* ---- Layer capsules ---- */
 
 .chipsBar {
   flex: none;
   display: flex;
-  gap: 8px;
+  gap: 7px;
+  /* The capsules are their own row: they may run wider than the sheet below rather than be clipped. */
+  width: max-content;
+  max-width: calc(100vw - 28px);
   overflow-x: auto;
-  padding: 2px 2px 6px;
+  padding: 1px 2px 6px;
   scrollbar-width: none;
+  /* Capsules running off the right edge fade out instead of being clipped hard. */
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 22px), transparent 100%);
 }
 
 .chipsBar::-webkit-scrollbar {
@@ -153,68 +220,85 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font: inherit;
   font-size: 13px;
-  height: 32px;
+  font-weight: 500;
+  line-height: 1;
+  height: 31px;
   padding: 0 12px;
   border-radius: 16px;
   border: none;
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: var(--shadow);
+  background: var(--material);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  color: var(--label);
+  box-shadow: var(--shadow), var(--hairline-inset);
   cursor: pointer;
   white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .chip:hover {
-  background: #f8f9fa;
+  background: var(--material-strong);
 }
 
 .chip[aria-pressed="true"] {
-  background: var(--accent-soft);
-  color: #1967d2;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 122, 255, 0.3), 0 4px 14px rgba(0, 122, 255, 0.24);
+}
+
+.chip[aria-pressed="true"]:hover {
+  background: var(--accent-press);
 }
 
 .chip[aria-pressed="false"] {
-  color: #80868b;
+  color: var(--label-2);
 }
 
 .chip[aria-pressed="false"] .chipDot {
-  opacity: 0.35;
+  opacity: 0.4;
 }
 
 .chipDot {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
+  width: 9px;
+  height: 9px;
+  border-radius: 2.5px;
   box-sizing: border-box;
 }
 
+/* The swatch mirrors how the feature is drawn on the map. */
 .chipDot[data-type="station"] {
   border-radius: 50%;
-  border: 2px solid #d62828;
+  border: 2.5px solid #4a4a52;
 }
 
 .chipDot[data-type="railway"] {
-  height: 4px;
-  border-radius: 0;
+  height: 3px;
+  border-radius: 1px;
 }
 
 .chipCount {
   font-size: 12px;
-  color: #80868b;
+  font-variant-numeric: tabular-nums;
+  color: var(--label-3);
 }
 
-/* ---- The sheet under the search bar ---- */
+.chip[aria-pressed="true"] .chipCount {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* ---- The sheet under the search field ---- */
 
 .panel {
   flex: 0 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--surface);
-  border-radius: 8px;
-  box-shadow: var(--shadow);
+  background: var(--material-strong);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow), var(--hairline-inset);
   overflow: hidden;
 }
 
@@ -226,7 +310,8 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px;
+  overscroll-behavior: contain;
+  padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -236,20 +321,38 @@
   display: none;
 }
 
-/* ---- Directions card (replaces the omnibox in directions mode) ---- */
+/* Apple's thin overlay scrollbar. */
+.panelBody::-webkit-scrollbar {
+  width: 8px;
+}
+
+.panelBody::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  background-clip: content-box;
+  background-color: rgba(60, 60, 67, 0.26);
+  border-radius: 4px;
+}
+
+.panelBody::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(60, 60, 67, 0.42);
+}
+
+/* ---- Directions card (replaces the search field in directions mode) ---- */
 
 .directionsCard {
   flex: none;
-  background: var(--surface);
-  border-radius: 8px;
-  box-shadow: var(--shadow);
-  padding: 8px 6px 0;
+  background: var(--material-strong);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow), var(--hairline-inset);
+  padding: 8px 8px 0;
 }
 
 .directionsHead {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
 }
 
 .navFieldStack {
@@ -264,25 +367,27 @@
 .navField {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 9px;
 }
 
 .navDot {
   flex: none;
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
   margin-top: 12px;
   border-radius: 50%;
 }
 
+/* Apple's start marker: a hollow green ring. */
 .navDotFrom {
   background: #fff;
-  box-shadow: inset 0 0 0 3px #5f6368;
+  box-shadow: inset 0 0 0 3px var(--green), 0 0 0 0.5px rgba(0, 0, 0, 0.1);
 }
 
+/* Apple's destination marker: a solid red pin head. */
 .navDotTo {
-  border-radius: 2px;
-  background: #d93025;
+  background: var(--red);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1);
 }
 
 .navInputWrap {
@@ -294,54 +399,63 @@
 .navInput {
   width: 100%;
   box-sizing: border-box;
-  font: inherit;
-  font-size: 14px;
-  padding: 9px 10px;
+  font-size: 15px;
+  line-height: 1.2;
+  padding: 9px 11px;
   border: none;
-  border-radius: 8px;
-  background: var(--hover);
-  color: var(--text);
+  border-radius: 9px;
+  background: var(--fill);
+  color: var(--label);
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+
+.navInput::placeholder {
+  color: var(--label-2);
 }
 
 .navInput:focus {
   outline: none;
-  background: #fff;
-  box-shadow: 0 0 0 2px var(--accent);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 3.5px var(--accent-soft), inset 0 0 0 1.5px var(--accent);
 }
 
 .navInput[aria-invalid="true"] {
-  box-shadow: 0 0 0 2px #d93025;
+  box-shadow: 0 0 0 3.5px var(--red-soft), inset 0 0 0 1.5px var(--red);
 }
 
 .navPick {
   flex: none;
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border: none;
   border-radius: 50%;
   background: none;
-  color: var(--text-muted);
+  color: var(--label-2);
   cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .navPick:hover {
-  background: var(--hover);
+  background: var(--fill);
+  color: var(--label);
 }
 
 .navPick[aria-pressed="true"] {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--accent);
+  color: #fff;
 }
 
+/* Travel modes as a segmented control on an inset track — Apple's filter row. */
 .modeBar {
   display: flex;
   align-items: stretch;
-  gap: 4px;
-  margin-top: 6px;
-  border-top: 1px solid var(--divider);
-  padding: 0 2px;
+  gap: 3px;
+  margin: 8px 0;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--fill);
 }
 
 .modeButton,
@@ -349,31 +463,35 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 5px;
   flex: 1;
-  font: inherit;
   font-size: 13px;
-  padding: 10px 6px 8px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 8px 4px;
   border: none;
-  border-bottom: 3px solid transparent;
+  border-radius: 7px;
   background: none;
-  color: var(--text-muted);
+  color: var(--label-2);
   cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease, box-shadow 0.14s ease;
 }
 
+/* Walking is always part of a route, so it reads as a permanently-selected, inert segment. */
 .modeFixed {
   cursor: default;
-  color: #80868b;
+  color: var(--label-3);
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .modeButton:hover {
-  color: var(--text);
+  color: var(--label);
 }
 
 .modeButton[aria-pressed="true"] {
+  background: #fff;
   color: var(--accent);
-  border-bottom-color: var(--accent);
-  font-weight: 500;
+  box-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.1), 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
 /* Invisible click-away layer under the open popovers. */
@@ -392,30 +510,34 @@
 .topRight {
   position: absolute;
   z-index: 1200;
-  top: 12px;
-  right: 12px;
+  top: 14px;
+  right: 14px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 8px;
+  gap: 10px;
 }
 
 .avatarButton {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: var(--surface);
-  color: var(--text-muted);
-  box-shadow: var(--shadow);
+  background: var(--material);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  color: var(--label-2);
+  box-shadow: var(--shadow), var(--hairline-inset);
   cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .avatarButton:hover {
-  background: #f8f9fa;
+  background: var(--material-strong);
+  color: var(--label);
 }
 
 .avatarInitial {
@@ -426,24 +548,30 @@
   border-radius: 50%;
   color: #fff;
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0;
 }
 
 .popover {
-  width: 260px;
+  width: 268px;
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: var(--surface);
-  border-radius: 12px;
-  box-shadow: var(--shadow-lg);
+  background: var(--material-strong);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lg), var(--hairline-inset);
 }
 
 .popoverName {
   margin: 0;
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
   overflow-wrap: anywhere;
 }
 
@@ -452,10 +580,10 @@
 }
 
 .popover code {
-  font-size: 13px;
-  background: var(--hover);
-  border-radius: 4px;
-  padding: 1px 4px;
+  font-size: 12.5px;
+  background: var(--fill);
+  border-radius: 5px;
+  padding: 1.5px 5px;
 }
 
 /* ---- World picker, bottom left ---- */
@@ -463,39 +591,47 @@
 .bottomLeft {
   position: absolute;
   z-index: 1200;
-  left: 12px;
-  bottom: 12px;
+  left: 14px;
+  bottom: 14px;
   display: flex;
   flex-direction: column-reverse;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
 }
 
 .worldCard {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 44px;
-  padding: 0 14px 0 10px;
+  height: 40px;
+  padding: 0 14px 0 11px;
   border: none;
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
-  font: inherit;
+  border-radius: 20px;
+  background: var(--material);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  color: var(--label);
   font-size: 13px;
-  box-shadow: var(--shadow);
+  font-weight: 500;
+  line-height: 1;
+  box-shadow: var(--shadow), var(--hairline-inset);
   cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.worldCard:hover:not(:disabled) {
+  background: var(--material-strong);
 }
 
 .worldCard:disabled {
-  color: var(--text-muted);
+  color: var(--label-2);
   cursor: default;
 }
 
 .worldCardIcon {
   display: grid;
   place-items: center;
-  color: var(--text-muted);
+  color: var(--label-2);
 }
 
 .worldCardLabel {
@@ -505,27 +641,31 @@
   white-space: nowrap;
 }
 
+/* Apple's context menu: a tight material sheet with hover-filled, separator-free rows. */
 .worldMenu {
   list-style: none;
   margin: 0;
-  padding: 6px 0;
+  padding: 5px;
   min-width: 220px;
-  max-width: min(360px, calc(100vw - 24px));
-  background: var(--surface);
-  border-radius: 8px;
-  box-shadow: var(--shadow-lg);
+  max-width: min(360px, calc(100vw - 28px));
+  background: var(--material-strong);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-lg), var(--hairline-inset);
 }
 
 .worldOption {
   display: block;
   width: 100%;
-  font: inherit;
   font-size: 14px;
+  line-height: 1.3;
   text-align: left;
-  padding: 9px 16px;
+  padding: 8px 10px;
   border: none;
+  border-radius: 6px;
   background: none;
-  color: var(--text);
+  color: var(--label);
   cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -533,7 +673,8 @@
 }
 
 .worldOption:hover {
-  background: var(--hover);
+  background: var(--accent);
+  color: #fff;
 }
 
 /* ---- Round map controls, bottom right (above Leaflet's zoom buttons) ---- */
@@ -541,7 +682,7 @@
 .bottomRight {
   position: absolute;
   z-index: 1000;
-  right: 12px;
+  right: 14px;
   bottom: 112px;
   display: flex;
   flex-direction: column;
@@ -552,38 +693,52 @@
   position: relative;
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  width: 42px;
+  height: 42px;
   border: none;
   border-radius: 50%;
-  background: var(--surface);
-  color: var(--text-muted);
-  box-shadow: var(--shadow);
+  background: var(--material);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  color: var(--label-2);
+  box-shadow: var(--shadow), var(--hairline-inset);
   cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .fab:hover {
-  background: #f8f9fa;
+  background: var(--material-strong);
+  color: var(--label);
 }
 
 .fab[aria-pressed="true"] {
   background: var(--accent);
   color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 122, 255, 0.3), 0 6px 20px rgba(0, 122, 255, 0.28);
+}
+
+.fab[aria-pressed="true"]:hover {
+  background: var(--accent-press);
+  color: #fff;
 }
 
 .fabBadge {
   position: absolute;
-  top: -2px;
-  right: -2px;
+  top: -3px;
+  right: -3px;
   min-width: 18px;
   height: 18px;
-  padding: 0 4px;
+  padding: 0 5px;
   box-sizing: border-box;
   border-radius: 9px;
-  background: #1e8e3e;
+  border: 1.5px solid rgba(255, 255, 255, 0.92);
+  background: var(--green);
   color: #fff;
-  font-size: 11px;
-  line-height: 18px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 15px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
   text-align: center;
 }
 
@@ -598,12 +753,30 @@
   white-space: nowrap;
 }
 
+/* Keyboard focus is Apple's solid blue ring, offset clear of the control; pointer clicks never show it. */
+.root :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Inside the blue-filled capsules and buttons the ring has to be white to stay visible. */
+.chip[aria-pressed="true"]:focus-visible,
+.fab[aria-pressed="true"]:focus-visible,
+.omniDirections:focus-visible,
+.primaryButton:focus-visible,
+.actionButton:focus-visible,
+.worldOption:hover:focus-visible {
+  outline-color: #fff;
+  outline-offset: -4px;
+}
+
 .muted,
 .hint,
 .footnote {
   margin: 0;
-  color: var(--text-muted);
-  font-size: 14px;
+  color: var(--label-2);
+  font-size: 13.5px;
+  line-height: 1.45;
 }
 
 .footnote {
@@ -613,19 +786,20 @@
 .warn,
 .error {
   margin: 0;
-  padding: 8px 10px;
-  border-radius: 8px;
+  padding: 9px 11px;
+  border-radius: var(--radius-control);
   font-size: 13px;
+  line-height: 1.4;
 }
 
 .warn {
-  background: #fef7e0;
-  color: #7a4f01;
+  background: var(--orange-soft);
+  color: var(--orange-text);
 }
 
 .error {
-  background: #fce8e6;
-  color: #a50e0e;
+  background: var(--red-soft);
+  color: var(--red-text);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -638,17 +812,18 @@
 
 .textButton,
 .linkButton {
-  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
   background: none;
   border: none;
   color: var(--accent);
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 2px;
 }
 
 .textButton:hover,
 .linkButton:hover {
-  text-decoration: underline;
+  color: var(--accent-press);
 }
 
 .sectionHead {
@@ -664,7 +839,9 @@
   align-items: center;
   gap: 8px;
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
 }
 
 /* ---- Search results / player list ---- */
@@ -675,9 +852,13 @@
   gap: 8px;
 }
 
+/*
+ * Apple's list rows: full-bleed, hairline separators drawn as insets (so they stay sub-pixel crisp)
+ * and no separator after the last row.
+ */
 .results {
   list-style: none;
-  margin: 0 -12px;
+  margin: 0 -14px;
   padding: 0;
 }
 
@@ -691,26 +872,36 @@
   padding: 10px 16px;
   background: none;
   border: none;
-  border-bottom: 1px solid var(--hover);
+  box-shadow: inset 0 -0.5px 0 var(--separator);
   cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.results > li:last-child .result {
+  box-shadow: none;
 }
 
 .result:hover,
 .result:focus-visible {
-  background: var(--hover);
+  background: var(--fill);
+}
+
+.result:active {
+  background: var(--fill-hover);
 }
 
 .resultDot {
   flex: none;
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.18);
 }
 
 .resultText {
   display: flex;
   flex-direction: column;
+  gap: 1px;
   min-width: 0;
 }
 
@@ -723,26 +914,27 @@
 
 .resultSub {
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--label-2);
 }
 
 /* ---- Feature card ---- */
 
 .card {
-  margin: -12px -12px 0;
+  margin: -14px -14px 0;
   display: flex;
   flex-direction: column;
 }
 
+/* A thin rule in the feature's own colour, as a quiet stand-in for Apple's hero header image. */
 .cardAccent {
-  height: 6px;
+  height: 4px;
 }
 
 .cardHeader {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 12px 12px 4px 16px;
+  gap: 6px;
+  padding: 13px 12px 4px 16px;
 }
 
 .cardTitles {
@@ -750,103 +942,115 @@
   min-width: 0;
 }
 
+/* Apple's place title: large, semibold, tightly tracked. */
 .cardTitle {
   margin: 0;
   font-size: 22px;
-  font-weight: 400;
-  line-height: 1.25;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.026em;
   overflow-wrap: anywhere;
 }
 
 .cardType {
-  margin: 2px 0 0;
-  color: var(--text-muted);
-  font-size: 14px;
+  margin: 3px 0 0;
+  color: var(--label-2);
+  font-size: 13.5px;
 }
 
 .iconButton {
   flex: none;
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   border: none;
-  background: none;
-  font-size: 18px;
+  background: var(--fill);
   line-height: 1;
-  color: var(--text-muted);
+  color: var(--label-2);
   cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .iconButton:hover {
-  background: var(--hover);
+  background: var(--fill-hover);
+  color: var(--label);
 }
 
 .iconButton[aria-pressed="true"] {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--accent);
+  color: #fff;
 }
 
 .cardActions {
   display: flex;
-  gap: 20px;
-  padding: 8px 16px 12px;
+  gap: 10px;
+  padding: 10px 16px 14px;
 }
 
-/* Google Maps' round icon + label action, e.g. "Directions". */
+/* Apple's place-card actions are filled blue capsules with the glyph inline, not icon-over-label. */
 .actionButton {
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  font: inherit;
-  font-size: 12px;
-  color: var(--accent);
-  background: none;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  color: #fff;
+  background: var(--accent);
   border: none;
-  padding: 0;
+  border-radius: 18px;
+  padding: 0 16px 0 12px;
+  height: 36px;
   cursor: pointer;
+  transition: background 0.12s ease, transform 0.08s ease;
 }
 
 .actionIcon {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: var(--accent);
+  width: 20px;
+  height: 20px;
   color: #fff;
 }
 
-.actionButton:hover .actionIcon {
-  background: #1765cc;
+.actionButton:hover {
+  background: var(--accent-press);
+}
+
+.actionButton:active {
+  transform: scale(0.97);
 }
 
 .cardDescription {
-  margin: 4px 16px 8px;
+  margin: 2px 16px 10px;
   font-size: 14px;
   line-height: 1.45;
   white-space: pre-wrap;
 }
 
 .facts {
-  margin: 4px 0;
+  margin: 0;
   padding: 0 16px;
-  border-top: 1px solid var(--divider);
+  box-shadow: inset 0 0.5px 0 var(--separator);
 }
 
 .facts > div {
   display: flex;
   gap: 12px;
   padding: 9px 0;
-  border-bottom: 1px solid var(--hover);
-  font-size: 14px;
+  box-shadow: inset 0 -0.5px 0 var(--separator);
+  font-size: 13.5px;
+}
+
+.facts > div:last-child {
+  box-shadow: none;
 }
 
 .facts dt {
   flex: 0 0 88px;
-  color: var(--text-muted);
+  color: var(--label-2);
 }
 
 .facts dd {
@@ -857,27 +1061,31 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .swatch {
   display: inline-block;
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   border-radius: 3px;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.18);
 }
 
 .links {
-  padding: 4px 16px 12px;
+  padding: 8px 16px 14px;
+  box-shadow: inset 0 0.5px 0 var(--separator);
 }
 
+/* Apple's grouped-list header: small, uppercase, wide-tracked, secondary. */
 .links h3 {
-  margin: 6px 0;
-  font-size: 13px;
+  margin: 4px 0 2px;
+  font-size: 11px;
   font-weight: 600;
-  color: var(--text-muted);
+  line-height: 1.3;
+  color: var(--label-2);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
 }
 
 .links ul {
@@ -887,7 +1095,7 @@
 }
 
 .links .linkButton {
-  padding: 4px 0;
+  padding: 5px 0;
   text-align: left;
 }
 
@@ -896,35 +1104,42 @@
 .editor {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .toolbar {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
+  gap: 7px;
 }
 
 .toolButton {
-  font: inherit;
-  font-size: 13px;
-  padding: 9px 8px;
-  border: 1px solid #dadce0;
-  border-radius: 8px;
-  background: #f8f9fa;
-  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 11px 8px;
+  border: none;
+  border-radius: 9px;
+  background: var(--fill);
+  color: var(--label);
   cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .toolButton:hover:not(:disabled) {
-  background: var(--accent-soft);
-  border-color: #d2e3fc;
+  background: var(--accent);
+  color: #fff;
+}
+
+.toolButton:disabled {
+  color: var(--label-3);
+  cursor: default;
 }
 
 .editForm {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .editHeader {
@@ -935,25 +1150,30 @@
 
 .editHeader h2 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 500;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.022em;
 }
 
 .badge {
   font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: #fef7e0;
-  color: #7a4f01;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--orange-soft);
+  color: var(--orange-text);
 }
 
 .geometryBox {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: #f8f9fa;
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  background: var(--fill);
 }
 
 .geometryBox .hint,
@@ -961,38 +1181,54 @@
   font-size: 13px;
 }
 
+/* Apple's inset form fields: a small secondary label over a filled, borderless control. */
 .formField {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 13px;
-  color: var(--text-muted);
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--label-2);
 }
 
 .formField input,
 .formField select,
 .formField textarea {
-  font: inherit;
-  font-size: 14px;
-  color: var(--text);
-  padding: 8px 10px;
-  border: 1px solid #dadce0;
-  border-radius: 8px;
-  background: #fff;
+  font-size: 15px;
+  line-height: 1.3;
+  color: var(--label);
+  padding: 9px 11px;
+  border: none;
+  border-radius: 9px;
+  background: var(--fill);
   box-sizing: border-box;
   width: 100%;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
 }
 
 .formField textarea {
   resize: vertical;
+  min-height: 62px;
+}
+
+.formField select {
+  appearance: none;
+  /* Apple's chevron affordance, drawn with gradients rather than shipped as an asset. */
+  background-image: linear-gradient(45deg, transparent 50%, var(--label-2) 50%),
+    linear-gradient(135deg, var(--label-2) 50%, transparent 50%);
+  background-position: calc(100% - 17px) calc(50% + 2px), calc(100% - 12px) calc(50% + 2px);
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 32px;
 }
 
 .formField input:focus,
 .formField select:focus,
 .formField textarea:focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 3.5px var(--accent-soft), inset 0 0 0 1.5px var(--accent);
 }
 
 .colourRow {
@@ -1003,17 +1239,18 @@
 
 .colourRow input[type="color"] {
   width: 44px;
-  height: 36px;
-  padding: 2px;
+  height: 38px;
+  padding: 3px;
   flex: none;
+  cursor: pointer;
 }
 
 .readOnly {
   margin: 0;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--hover);
-  color: var(--text);
+  padding: 9px 11px;
+  border-radius: 9px;
+  background: var(--fill);
+  color: var(--label);
   font-size: 14px;
 }
 
@@ -1021,32 +1258,35 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  color: #c5221f;
+  color: var(--red-text);
   font-size: 13px;
+  line-height: 1.45;
 }
 
 .errorText {
   margin: 0;
-  color: #c5221f;
+  color: var(--red-text);
   font-size: 13px;
 }
 
 .success {
   margin: 0;
-  color: #137333;
+  color: var(--green-deep);
   font-size: 13px;
 }
 
+/* Destructive confirmation — Apple's alert body copy over a tinted well. */
 .prompt {
-  padding: 10px;
-  border-radius: 8px;
-  background: #fef7e0;
-  color: #3c4043;
+  padding: 12px;
+  border-radius: var(--radius-control);
+  background: var(--red-soft);
+  color: var(--label);
   font-size: 14px;
+  line-height: 1.4;
 }
 
 .prompt p {
-  margin: 0 0 8px;
+  margin: 0 0 10px;
 }
 
 .buttonRow {
@@ -1056,15 +1296,18 @@
   align-items: center;
 }
 
+/* Apple's capsule buttons: filled for the primary, tinted-fill for the rest. */
 .primaryButton,
 .secondaryButton,
 .dangerButton {
-  font: inherit;
   font-size: 14px;
-  padding: 8px 18px;
-  border-radius: 20px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 10px 18px;
+  border-radius: 19px;
   cursor: pointer;
-  border: 1px solid transparent;
+  border: none;
+  transition: background 0.12s ease, opacity 0.12s ease, transform 0.08s ease;
 }
 
 .primaryButton {
@@ -1073,34 +1316,51 @@
 }
 
 .primaryButton:hover:not(:disabled) {
-  background: #1765cc;
+  background: var(--accent-press);
+}
+
+.primaryButton:active:not(:disabled),
+.secondaryButton:active:not(:disabled),
+.dangerButton:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .primaryButton:disabled {
-  background: #a8c7fa;
+  background: var(--fill-hover);
+  color: var(--label-3);
   cursor: default;
 }
 
 .secondaryButton {
-  background: #fff;
-  border-color: #dadce0;
+  background: var(--fill);
   color: var(--accent);
 }
 
+.secondaryButton:hover:not(:disabled) {
+  background: var(--fill-hover);
+}
+
 .dangerButton {
-  background: #fff;
-  border-color: #f4c7c3;
-  color: #c5221f;
+  background: var(--red-soft);
+  color: var(--red-text);
+}
+
+.dangerButton:hover:not(:disabled) {
+  background: rgba(255, 59, 48, 0.2);
 }
 
 .prompt .dangerButton {
-  background: #c5221f;
+  background: var(--red);
   color: #fff;
+}
+
+.prompt .dangerButton:hover:not(:disabled) {
+  background: #e02d23;
 }
 
 .secondaryButton:disabled,
 .dangerButton:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: default;
 }
 
@@ -1121,72 +1381,93 @@
   z-index: 5;
   left: 0;
   right: 0;
-  top: calc(100% + 2px);
+  top: calc(100% + 4px);
   margin: 0;
-  padding: 4px 0;
+  padding: 5px;
   list-style: none;
-  background: var(--surface);
-  border-radius: 8px;
-  box-shadow: var(--shadow-lg);
+  background: var(--material-strong);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-lg), var(--hairline-inset);
   max-height: 260px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .suggestions .result {
-  padding: 8px 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  box-shadow: none;
 }
 
+/*
+ * Route headline: Apple leads with the duration in heavy dark type and keeps the distance and the
+ * "via" line secondary underneath.
+ */
 .routeSummary {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 12px;
-  padding: 4px 0 8px;
+  gap: 2px 10px;
+  padding: 2px 0 6px;
 }
 
 .routeDuration {
-  font-size: 24px;
-  color: #188038;
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--label);
 }
 
 .routeDistance {
   font-size: 15px;
-  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  color: var(--label-2);
 }
 
 .routeVia {
   flex-basis: 100%;
+  margin-top: 2px;
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--label-2);
 }
 
 .legs {
   list-style: none;
-  margin: 0 -12px;
+  margin: 0 -14px;
   padding: 0;
 }
 
 .leg {
   display: flex;
   gap: 12px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--hover);
+  padding: 11px 16px;
+  box-shadow: inset 0 -0.5px 0 var(--separator);
+  transition: background 0.12s ease;
+}
+
+.legs > li:last-child .leg {
+  box-shadow: none;
 }
 
 .legHighlighted {
-  background: #fef7e0;
+  background: var(--orange-soft);
 }
 
 .legIcon {
   flex: none;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   border: 2px solid;
   border-radius: 50%;
   box-sizing: border-box;
   background: #fff;
+  box-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.12);
 }
 
 .legBody {
@@ -1195,10 +1476,10 @@
 }
 
 .legTitle {
-  font: inherit;
   font-size: 15px;
   font-weight: 500;
-  color: var(--text);
+  line-height: 1.3;
+  color: var(--label);
   background: none;
   border: none;
   padding: 0;
@@ -1207,33 +1488,56 @@
 }
 
 .legTitle:hover {
-  text-decoration: underline;
+  color: var(--accent);
 }
 
 .legDetail,
 .legMeta {
   margin: 2px 0 0;
   font-size: 13px;
-  color: var(--text-muted);
+  line-height: 1.4;
+  color: var(--label-2);
+}
+
+.legMeta {
+  font-variant-numeric: tabular-nums;
 }
 
 .legBody .linkButton {
-  padding: 4px 0 0;
+  padding: 5px 0 0;
   font-size: 13px;
 }
 
+/* Turn-by-turn: a hairline timeline rather than list bullets. */
 .steps {
-  margin: 6px 0 0;
-  padding-left: 18px;
+  margin: 8px 0 0;
+  padding: 0 0 0 13px;
+  list-style: none;
+  border-left: 1.5px solid var(--separator-opaque);
   font-size: 13px;
 }
 
 .steps li {
-  padding: 3px 0;
+  position: relative;
+  padding: 4px 0;
+  color: var(--label);
+}
+
+.steps li::before {
+  content: "";
+  position: absolute;
+  left: -17.5px;
+  top: 11px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--label-3);
 }
 
 .steps li span + span {
   margin-left: 6px;
+  color: var(--label-2);
+  font-variant-numeric: tabular-nums;
 }
 
 /*
@@ -1243,9 +1547,9 @@
 
 @media (max-width: 699px) {
   .leftRail {
-    top: 10px;
-    left: 10px;
-    right: 10px;
+    top: 12px;
+    left: 12px;
+    right: 12px;
     bottom: 0;
     width: auto;
     max-width: none;
@@ -1253,29 +1557,30 @@
 
   .panel {
     /* Pushed to the bottom of the rail; the map stays visible above it. */
-    margin: auto -10px 0;
+    margin: auto -12px 0;
     max-height: 55vh;
     border-radius: 16px 16px 0 0;
-    box-shadow: 0 -2px 12px rgba(60, 64, 67, 0.25);
+    box-shadow: 0 -1px 0 rgba(0, 0, 0, 0.06), 0 -8px 34px rgba(0, 0, 0, 0.18);
   }
 
+  /* Apple's grabber: a short rounded bar in tertiary label colour. */
   .sheetHandle {
     display: flex;
     justify-content: center;
     align-items: center;
     width: 100%;
-    height: 22px;
+    height: 24px;
     padding: 0;
     border: none;
     background: none;
-    cursor: pointer;
+    cursor: grab;
   }
 
   .sheetHandle span {
     width: 36px;
-    height: 4px;
-    border-radius: 2px;
-    background: #dadce0;
+    height: 5px;
+    border-radius: 2.5px;
+    background: var(--label-3);
   }
 
   .sheetClosed .panelBody {
@@ -1283,8 +1588,8 @@
   }
 
   .bottomLeft {
-    bottom: 10px;
-    left: 10px;
+    bottom: 12px;
+    left: 12px;
   }
 
   .worldCardLabel {
@@ -1292,18 +1597,18 @@
   }
 
   .bottomRight {
-    bottom: 10px;
-    right: 10px;
+    bottom: 12px;
+    right: 12px;
     flex-direction: row-reverse;
   }
 
   /* Lift the corner controls above the open bottom sheet (its max-height). */
   .root[data-sheet="open"] .bottomLeft,
   .root[data-sheet="open"] .bottomRight {
-    bottom: calc(55vh + 10px);
+    bottom: calc(55vh + 12px);
   }
 
   .popover {
-    width: min(280px, calc(100vw - 24px));
+    width: min(280px, calc(100vw - 28px));
   }
 }

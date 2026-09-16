@@ -1,9 +1,48 @@
+/*
+ * Foundation for the Apple-Maps-style chrome: system type stack, Apple's optical defaults
+ * (antialiased text, slightly tightened tracking, tabular figures for coordinates and distances)
+ * and the pixel-exact tile rendering squaremap needs.
+ */
+
+:root {
+  /*
+   * SF Pro on Apple platforms, Segoe UI Variable on Windows 11 (the closest equivalent in both
+   * weight range and optical sizing), then the usual fallbacks.
+   */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI Variable Text",
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
 html,
 body {
   margin: 0;
   padding: 0;
   height: 100%;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-ui);
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  /* Same as the map's unexplored ground, so overscroll and first paint never flash a light page. */
+  background: #17171a;
+}
+
+body {
+  /* The map owns the viewport; nothing behind the chrome should rubber-band or scroll. */
+  overscroll-behavior: none;
+}
+
+/* Coordinates, distances and durations line up column-wise as they tick over. */
+input,
+button,
+select,
+textarea {
+  font-family: inherit;
+  letter-spacing: inherit;
+}
+
+::selection {
+  background: rgba(0, 122, 255, 0.24);
 }
 
 /*

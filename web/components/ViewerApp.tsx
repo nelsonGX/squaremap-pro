@@ -36,6 +36,7 @@ import { ALL_VISIBLE, countByType, visibleFeatures, type LayerVisibility } from 
 import { searchFeatures } from "../lib/features/search";
 import {
   CATEGORY_COLOURS,
+  DEFAULT_RAILWAY_COLOUR,
   displayName,
   featureSubtitle,
   railwayColourMap,
@@ -78,7 +79,8 @@ const MapView = dynamic(() => import("./MapView"), {
 const LAYER_SWATCH: Record<FeatureType, string> = {
   building: CATEGORY_COLOURS.residential,
   road: ROAD_LOOKS.highway.color,
-  railway: "#d62828",
+  railway: DEFAULT_RAILWAY_COLOUR,
+  // A station is drawn as a white disc ringed in its line colour; the ring is the capsule's border.
   station: "#ffffff",
 };
 

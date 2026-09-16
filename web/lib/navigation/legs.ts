@@ -43,7 +43,11 @@ export function httpStatusForRoute(status: RouteStatus): number {
 
 export const MODE_LABELS: Record<RouteMode, string> = { walk: "Walk", road: "Road", rail: "Train" };
 
-export const RAIL_FALLBACK_COLOUR = "#7b1fa2";
+/** Apple's system blue, used for every driving leg. */
+export const ROAD_LEG_COLOUR = "#0a84ff";
+
+/** Apple's system indigo, for a rail leg whose railway is not in the feature list. */
+export const RAIL_FALLBACK_COLOUR = "#5e5ce6";
 
 export interface LegView {
   mode: RouteMode;
@@ -141,15 +145,19 @@ export interface LegLineStyle {
   casing: { color: string; weight: number } | null;
 }
 
-/** Map style per leg: walk dotted grey, road solid blue, rail in its railway colour. */
+/**
+ * Map style per leg, following Apple Maps' route drawing: walking legs are a row of grey dots,
+ * driving legs the system blue inside a darker blue casing, transit legs the line's own colour
+ * inside the same darker casing so every leg reads as one continuous ribbon.
+ */
 export function legLineStyle(leg: RouteLeg, features: readonly Feature[]): LegLineStyle {
   switch (leg.mode) {
     case "walk":
-      return { color: "#5f6368", weight: 5, opacity: 0.95, dashArray: "1 10", casing: null };
+      return { color: "#8e8e93", weight: 5, opacity: 0.95, dashArray: "0.1 9", casing: null };
     case "road":
-      return { color: "#1a73e8", weight: 7, opacity: 1, casing: { color: "#ffffff", weight: 11 } };
+      return { color: ROAD_LEG_COLOUR, weight: 8, opacity: 1, casing: { color: "#0059c8", weight: 12 } };
     case "rail":
-      return { color: railLegColour(leg, features), weight: 7, opacity: 1, casing: { color: "#ffffff", weight: 11 } };
+      return { color: railLegColour(leg, features), weight: 8, opacity: 1, casing: { color: "#ffffff", weight: 13 } };
   }
 }
 
