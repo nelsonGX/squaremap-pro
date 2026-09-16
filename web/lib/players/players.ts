@@ -30,9 +30,9 @@ export function playersInWorld(players: readonly OnlinePlayer[], worldId: string
 }
 
 /**
- * A stable colour per player, derived from the UUID. Skins are deliberately not fetched: that would
- * mean a request per player to a third-party skin service from every viewer's browser, and the map is
- * meant to work on a LAN with no internet access.
+ * A stable colour per player, derived from the UUID. It backs the marker dot, which is what shows
+ * when the head image from squaremap's `player-tracker.nameplate.heads-url` cannot load — the
+ * default points at mc-heads.net, so a LAN with no internet access falls back to these colours.
  */
 export function playerColour(uuid: string): string {
   let h = 0;

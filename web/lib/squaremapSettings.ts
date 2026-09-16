@@ -32,12 +32,32 @@ export interface WorldSettingsZoom {
   extra: number;
 }
 
+/**
+ * `player_tracker.nameplates` as written by `UpdateWorldData.writeWorldSettings`. Only `show_heads`
+ * and `heads_url` are used here (armour/health are not part of `GET /api/players`).
+ */
+export interface WorldSettingsNameplates {
+  enabled?: boolean;
+  show_heads?: boolean;
+  /** Template with `{uuid}` / `{name}` placeholders, e.g. `https://mc-heads.net/avatar/{uuid}/16`. */
+  heads_url?: string;
+  show_armor?: boolean;
+  show_health?: boolean;
+}
+
+export interface WorldSettingsPlayerTracker {
+  enabled?: boolean;
+  update_interval?: number;
+  label?: string;
+  nameplates?: WorldSettingsNameplates;
+}
+
 export interface WorldSettings {
   spawn: { x: number; z: number };
   zoom: WorldSettingsZoom;
   marker_update_interval: number;
   tiles_update_interval: number;
-  player_tracker?: unknown;
+  player_tracker?: WorldSettingsPlayerTracker;
 }
 
 function isObj(v: unknown): v is Record<string, unknown> {
@@ -68,6 +88,9 @@ export function isWorldSettings(v: unknown): v is WorldSettings {
   );
 }
 
+/** squaremap `WorldConfig.PLAYER_TRACKER_NAMEPLATE_HEADS_URL` default (v1.3.12). */
+export const DEFAULT_HEADS_URL = "https://mc-heads.net/avatar/{uuid}/16";
+
 /**
  * Used when a world's settings.json cannot be loaded (squaremap WorldConfig defaults: zoom max 3,
  * default 3, extra 2), and always in fixture mode (no tiles).
@@ -77,7 +100,45 @@ export const DEFAULT_WORLD_SETTINGS: WorldSettings = {
   zoom: { max: 3, def: 3, extra: 2 },
   marker_update_interval: 5,
   tiles_update_interval: 15,
+  player_tracker: { nameplates: { enabled: true, show_heads: true, heads_url: DEFAULT_HEADS_URL } },
 };
+
+/**
+ * The head-image URL template to use for player markers, or null when the server turned heads off
+ * (`player-tracker.nameplate.show-head: false`). squaremap's default points at mc-heads.net, so a
+ * viewer with no internet access simply gets no image — the marker falls back to a coloured dot.
+ */
+export function headsUrlTemplate(settings: WorldSettings): string | null {
+  const np = settings.player_tracker?.nameplates;
+  if (!np || np.show_heads === false) return null;
+  const url = typeof np.heads_url === "string" ? np.heads_url.trim() : "";
+  return url === "" ? null : url;
+}
+
+/** squaremap `Player.getHeadUrl`: `{uuid}` / `{name}` substitution (URL-encoded here). */
+export function playerHeadUrl(template: string, uuid: string, name: string): string {
+  return template
+    .replace(/\{uuid\}/g, encodeURIComponent(uuid))
+    .replace(/\{name\}/g, encodeURIComponent(name));
+}
+
+/**
+ * Refresh intervals, in ms, from the world settings — the same numbers squaremap's `World.tick`
+ * counts ticks against (`tiles_update_interval` = background render interval seconds,
+ * `marker_update_interval` = marker API update interval seconds). Clamped to >= 1 s so a
+ * misconfigured 0 cannot become a busy loop.
+ */
+function refreshMs(seconds: unknown, fallback: number): number {
+  return Math.max(1, Math.round(isNum(seconds) ? seconds : fallback)) * 1000;
+}
+
+export function tilesRefreshMs(settings: WorldSettings): number {
+  return refreshMs(settings.tiles_update_interval, DEFAULT_WORLD_SETTINGS.tiles_update_interval);
+}
+
+export function markersRefreshMs(settings: WorldSettings): number {
+  return refreshMs(settings.marker_update_interval, DEFAULT_WORLD_SETTINGS.marker_update_interval);
+}
 
 /** `${tilesBase}/<web name>/settings.json` (squaremap `UpdateWorldData` writes it under `tiles/<web name>/`). */
 export function worldSettingsUrl(tilesBase: string, worldId: string): string {

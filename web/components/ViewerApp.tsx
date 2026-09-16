@@ -47,6 +47,9 @@ import {
   DEFAULT_WORLD_SETTINGS,
   loadWorldSettings,
   worldSettingsUrl,
+  headsUrlTemplate,
+  markersRefreshMs,
+  tilesRefreshMs,
   worldTileTemplate,
   type WorldSettings,
 } from "../lib/squaremapSettings";
@@ -98,6 +101,19 @@ function errorMessage(e: unknown): string {
 
 function isAbort(e: unknown): boolean {
   return e instanceof DOMException && e.name === "AbortError";
+}
+
+/**
+ * Whether a freshly polled feature list is identical to the loaded one. Every write bumps a
+ * feature's `revision`, so id + revision is enough and avoids deep-comparing geometry.
+ */
+function sameFeatures(a: WorldFeatures, b: WorldFeatures): boolean {
+  return (
+    a.worldId === b.worldId &&
+    a.skipped === b.skipped &&
+    a.features.length === b.features.length &&
+    a.features.every((f, i) => f.id === b.features[i]!.id && f.revision === b.features[i]!.revision)
+  );
 }
 
 /** Feature colour for the result list dot. */
@@ -255,7 +271,13 @@ export default function ViewerApp() {
     const ac = new AbortController();
     api
       .listFeatures(worldId, ac.signal)
-      .then((r) => setFeatureLoad({ status: "ok", value: { worldId, features: r.features, skipped: r.skipped.length } }))
+      .then((r) =>
+        setFeatureLoad((prev) => {
+          const value = { worldId, features: r.features, skipped: r.skipped.length };
+          // A poll that found nothing new keeps the old array, so the map layers are not rebuilt.
+          return prev.status === "ok" && sameFeatures(prev.value, value) ? prev : { status: "ok", value };
+        }),
+      )
       .catch((e: unknown) => {
         if (!isAbort(e)) setFeatureLoad({ status: "error", message: errorMessage(e) });
       });
@@ -372,6 +394,17 @@ export default function ViewerApp() {
   const selected = selectedId ? (allFeatures.find((f) => f.id === selectedId) ?? null) : null;
 
   const worldSettings = settings && settings.worldId === worldId ? settings.value : DEFAULT_WORLD_SETTINGS;
+
+  // Periodic feature refresh, on squaremap's own marker interval, so other editors' changes show up
+  // without a reload. Paused while this browser has unsaved edits: the reload would race the draft.
+  useEffect(() => {
+    if (!worldId || dirty) return;
+    const id = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      setReloadFeatures((n) => n + 1);
+    }, markersRefreshMs(worldSettings));
+    return () => clearInterval(id);
+  }, [worldId, dirty, worldSettings]);
   const featuresLoading =
     worldId !== null && (featureLoad.status === "loading" || (featureLoad.status === "ok" && featureLoad.value.worldId !== worldId));
 
@@ -710,7 +743,9 @@ export default function ViewerApp() {
           editing={editing}
           navigation={navigation}
           fitRequest={fitRequest}
+          tilesRefreshMs={tilesRefreshMs(worldSettings)}
           players={livePlayers}
+          headsUrl={USE_FIXTURES ? null : headsUrlTemplate(worldSettings)}
           onPlayerClick={openPlayerOnMap}
         />
       </main>

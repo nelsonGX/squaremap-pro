@@ -5,3 +5,13 @@ body {
   height: 100%;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
+
+/*
+ * squaremap tiles are block-per-pixel images: the browser's default smooth upscaling turns every
+ * zoom level past `zoom.max` (the extra-zoom levels) into a blur. squaremap v1.3.12's own
+ * `web/src/css/styles.css` sets the same rules on `img.leaflet-tile`.
+ */
+img.leaflet-tile {
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+}

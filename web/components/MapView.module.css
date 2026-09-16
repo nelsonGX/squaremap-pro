@@ -78,6 +78,26 @@
   pointer-events: none;
 }
 
+/*
+ * The player's head, drawn over the dot. It is a pixel-art image scaled up from squaremap's 16px
+ * heads_url, so it keeps hard edges like the tiles do.
+ */
+.playerHead {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2.5px solid #fff;
+  box-sizing: border-box;
+  object-fit: cover;
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  background: var(--player-colour);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
 .playerName {
   position: absolute;
   top: 20px;

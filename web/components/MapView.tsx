@@ -7,7 +7,7 @@
  * Client-only: loaded through `next/dynamic` with `ssr: false` because Leaflet and leaflet-geoman
  * touch `window` (geoman extends the global `L` that Leaflet's UMD build installs on import).
  */
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import * as L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "@geoman-io/leaflet-geoman-free";
@@ -19,7 +19,7 @@ import { legLineStyle } from "../lib/navigation/legs";
 import { playerColour, playerTitle, screenHeading } from "../lib/players/players";
 import { displayName, drawOrder, featureStyle, railwayColourMap, type FeatureStyle } from "../lib/features/styles";
 import { SQUAREMAP_TILE_SIZE, toBlock, toLatLng, toPoint, type LatLngLike } from "../lib/squaremapCrs";
-import type { WorldSettingsZoom } from "../lib/squaremapSettings";
+import { playerHeadUrl, type WorldSettingsZoom } from "../lib/squaremapSettings";
 import styles from "./MapView.module.css";
 
 // Only the map and layers created with `pmIgnore: false` get geoman handlers (features stay plain
@@ -93,8 +93,15 @@ export interface MapViewProps {
   navigation: MapNavigation | null;
   /** Fit the view to these points when `nonce` changes (route legs, a player, …). */
   fitRequest: { points: XZ[]; nonce: number } | null;
+  /**
+   * Tile refresh period in ms (squaremap `tiles_update_interval`). Tiles are re-fetched on this
+   * period through a second tile layer, as squaremap's `LayerControl` does.
+   */
+  tilesRefreshMs: number;
   /** Live players of the current world; empty when the layer is off. */
   players: readonly OnlinePlayer[];
+  /** `player_tracker.nameplates.heads_url` template, or null when heads are off. */
+  headsUrl: string | null;
   /** Player marker click → uuid. */
   onPlayerClick?: (uuid: string) => void;
 }
@@ -123,19 +130,26 @@ function fitOptions(map: L.Map, maxZoom: number): L.FitBoundsOptions {
 }
 
 /**
- * Marker for one online player: a coloured dot with a heading cone and a name label, in the style of
- * a Google Maps live marker. The whole icon is re-created only when the name or colour changes;
- * moves are applied with `setLatLng` and the heading with a CSS variable, so the CSS transition
- * animates between polls.
+ * Marker for one online player: the player's head (squaremap's configured `heads_url`, as its own
+ * `Player.getHeadUrl` builds it) over a heading cone, with a name label, in the style of a Google
+ * Maps live marker. The head is layered on top of the colour dot, so a head that cannot load (no
+ * internet access on a LAN server, heads turned off) degrades to the coloured dot.
+ *
+ * The icon is re-created only when the name or head URL changes; moves are applied with `setLatLng`
+ * and the heading with a CSS variable, so the CSS transition animates between polls.
  */
-function playerIcon(p: OnlinePlayer): L.DivIcon {
+function playerIcon(p: OnlinePlayer, headsUrl: string | null): L.DivIcon {
   const colour = playerColour(p.uuid);
+  const head = headsUrl
+    ? `<img class="${styles.playerHead}" alt="" src="${escapeHtml(playerHeadUrl(headsUrl, p.uuid, p.name))}">`
+    : "";
   return L.divIcon({
     className: styles.playerMarker,
     html:
       `<div class="${styles.player}" style="--player-colour:${colour}">` +
       `<span class="${styles.playerCone}" aria-hidden="true"></span>` +
       `<span class="${styles.playerDot}" aria-hidden="true"></span>` +
+      head +
       `<span class="${styles.playerName}">${escapeHtml(p.name)}</span>` +
       `</div>`,
     iconSize: [18, 18],
@@ -168,10 +182,15 @@ function pathLatLngs(layer: L.Layer): L.LatLng[] {
 }
 
 export default function MapView(props: MapViewProps) {
-  const { tileTemplate, worldKey, zoom, spawn, features, allFeatures, selectedId, flyRequest, onSelect, editing, navigation, fitRequest, players, onPlayerClick } = props;
+  const { tileTemplate, worldKey, zoom, spawn, features, allFeatures, selectedId, flyRequest, onSelect, editing, navigation, fitRequest, tilesRefreshMs, players, headsUrl, onPlayerClick } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
-  const tileRef = useRef<L.TileLayer | null>(null);
+  /**
+   * squaremap `LayerControl` keeps two tile layers and swaps them so a periodic refresh never shows
+   * a half-loaded map: the hidden layer is redrawn, and only once all of its tiles have loaded is it
+   * raised above the visible one.
+   */
+  const tilesRef = useRef<{ layers: [L.TileLayer, L.TileLayer]; current: 0 | 1 } | null>(null);
   const featureLayerRef = useRef<L.LayerGroup | null>(null);
   const haloLayerRef = useRef<L.LayerGroup | null>(null);
   const haloRendererRef = useRef<L.Renderer | null>(null);
@@ -188,10 +207,20 @@ export default function MapView(props: MapViewProps) {
   const endpointLayerRef = useRef<L.LayerGroup | null>(null);
   const playerLayerRef = useRef<L.LayerGroup | null>(null);
   /** uuid -> marker, so a moving player keeps its DOM element (and its CSS transition). */
-  const playerMarkersRef = useRef(new Map<string, { marker: L.Marker; name: string }>());
+  const playerMarkersRef = useRef(new Map<string, { marker: L.Marker; name: string; headsUrl: string | null }>());
   const playerClickRef = useRef(onPlayerClick);
   /** The DOM event of the last feature click, so the map click it bubbles into is not "empty map". */
   const featureClickEventRef = useRef<Event | null>(null);
+
+  /** squaremap `LayerControl.switchTileLayer`: raise the layer that just finished loading. */
+  const swapTileLayers = useCallback(() => {
+    const tiles = tilesRef.current;
+    if (!tiles) return;
+    const next: 0 | 1 = tiles.current === 0 ? 1 : 0;
+    tiles.layers[next].setZIndex(1);
+    tiles.layers[tiles.current].setZIndex(0);
+    tiles.current = next;
+  }, []);
 
   useEffect(() => {
     selectRef.current = onSelect;
@@ -261,35 +290,56 @@ export default function MapView(props: MapViewProps) {
       map.pm.disableDraw();
       map.remove();
       mapRef.current = null;
-      tileRef.current = null;
+      tilesRef.current = null;
       draftPathRef.current = null;
       playerMarkers.clear();
     };
   }, []);
 
-  // World: tile layer + view, as squaremap World.load / LayerControl.createTileLayer.
+  // World: tile layers + view, as squaremap World.load / LayerControl.setupTileLayers.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (tileRef.current) {
-      map.removeLayer(tileRef.current);
-      tileRef.current = null;
-    }
+    for (const layer of tilesRef.current?.layers ?? []) map.removeLayer(layer);
+    tilesRef.current = null;
     if (tileTemplate) {
-      tileRef.current = L.tileLayer(tileTemplate, {
-        tileSize: SQUAREMAP_TILE_SIZE,
-        minNativeZoom: 0,
-        maxNativeZoom: zoom.max,
-        errorTileUrl: CLEAR_PNG,
-      }).addTo(map);
-      tileRef.current.bringToBack();
+      const create = () =>
+        L.tileLayer(tileTemplate, {
+          tileSize: SQUAREMAP_TILE_SIZE,
+          minNativeZoom: 0,
+          maxNativeZoom: zoom.max,
+          errorTileUrl: CLEAR_PNG,
+          // Keep already-drawn tiles around a little longer, so a refresh does not blank the edges.
+          keepBuffer: 4,
+        })
+          .addTo(map)
+          .on("load", swapTileLayers);
+      const layers: [L.TileLayer, L.TileLayer] = [create(), create()];
+      layers[0].setZIndex(1);
+      layers[1].setZIndex(0);
+      tilesRef.current = { layers, current: 0 };
     }
     map
       .setMinZoom(0)
       .setMaxZoom(zoom.max + zoom.extra)
       .setView(ll(toLatLng(spawn.x, spawn.z, zoom.max)), zoom.def);
     // worldKey intentionally drives the reset; spawn/zoom values are part of it.
-  }, [tileTemplate, worldKey, zoom.max, zoom.def, zoom.extra, spawn.x, spawn.z]);
+  }, [tileTemplate, worldKey, zoom.max, zoom.def, zoom.extra, spawn.x, spawn.z, swapTileLayers]);
+
+  /**
+   * Periodic tile refresh, matching squaremap's `World.tick` (`tiles_update_interval`): redraw the
+   * hidden layer, whose `load` event then promotes it. Skipped while the tab is hidden, so a
+   * backgrounded map does not queue a full tile re-fetch per interval.
+   */
+  useEffect(() => {
+    if (!tileTemplate) return;
+    const id = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      const tiles = tilesRef.current;
+      if (tiles) tiles.layers[tiles.current === 0 ? 1 : 0].redraw();
+    }, tilesRefreshMs);
+    return () => clearInterval(id);
+  }, [tileTemplate, worldKey, tilesRefreshMs]);
 
   // Features. Road and railway lines are geoman snap targets (vertex snapping while drawing/editing).
   useEffect(() => {
@@ -560,13 +610,13 @@ export default function MapView(props: MapViewProps) {
       const latlng = ll(vertexLatLngs([{ x: p.x, z: p.z }], zoom.max)[0]!);
       const existing = markers.get(p.uuid);
       let marker: L.Marker;
-      if (existing && existing.name === p.name) {
+      if (existing && existing.name === p.name && existing.headsUrl === headsUrl) {
         marker = existing.marker;
         marker.setLatLng(latlng);
       } else {
         existing?.marker.remove();
         marker = L.marker(latlng, {
-          icon: playerIcon(p),
+          icon: playerIcon(p, headsUrl),
           pane: "players",
           keyboard: false,
           interactive: true,
@@ -579,7 +629,10 @@ export default function MapView(props: MapViewProps) {
           playerClickRef.current?.(p.uuid);
         });
         marker.addTo(group);
-        markers.set(p.uuid, { marker, name: p.name });
+        markers.set(p.uuid, { marker, name: p.name, headsUrl });
+        // A head that fails to load (offline LAN, skin service down) drops out, leaving the dot.
+        const head = marker.getElement()?.querySelector("img");
+        head?.addEventListener("error", () => head.remove(), { once: true });
       }
       const el = marker.getElement();
       if (el) {
@@ -593,7 +646,7 @@ export default function MapView(props: MapViewProps) {
         markers.delete(uuid);
       }
     }
-  }, [players, zoom.max]);
+  }, [players, headsUrl, zoom.max]);
 
   // Fit to a route or leg on request.
   useEffect(() => {
