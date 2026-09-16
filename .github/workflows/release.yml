@@ -47,6 +47,10 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v5
 
+      # Git on Windows does not track the executable bit reliably; make sure the wrapper can run.
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
       - name: Web tests
         working-directory: web
         run: |
