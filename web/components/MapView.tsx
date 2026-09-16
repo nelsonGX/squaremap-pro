@@ -12,10 +12,11 @@ import * as L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "@geoman-io/leaflet-geoman-free";
 import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
-import type { Feature, FeatureType, RouteResponse, XZ } from "../lib/api/types";
+import type { Feature, FeatureType, OnlinePlayer, RouteResponse, XZ } from "../lib/api/types";
 import { SNAP_DISTANCE_PX, blocksPerPixel } from "../lib/editor/geometry";
 import { blockBounds, boundsToLatLngs, flyTarget, vertexLatLngs } from "../lib/features/geometry";
 import { legLineStyle } from "../lib/navigation/legs";
+import { playerColour, playerTitle, screenHeading } from "../lib/players/players";
 import { displayName, drawOrder, featureStyle, railwayColourMap, type FeatureStyle } from "../lib/features/styles";
 import { SQUAREMAP_TILE_SIZE, toBlock, toLatLng, toPoint, type LatLngLike } from "../lib/squaremapCrs";
 import type { WorldSettingsZoom } from "../lib/squaremapSettings";
@@ -64,8 +65,6 @@ export interface MapNavigation {
   /** Latest ok route to draw (null while none). */
   route: RouteResponse | null;
   highlightLeg: number | null;
-  /** Fit the view to these points when `nonce` changes. */
-  fitRequest: { points: XZ[]; nonce: number } | null;
   /** Map click (anywhere, features included) -> block. */
   onClick: (block: XZ) => void;
   /** Endpoint marker dragged to a block. */
@@ -92,6 +91,12 @@ export interface MapViewProps {
   editing: MapEditing | null;
   /** Non-null in directions mode. */
   navigation: MapNavigation | null;
+  /** Fit the view to these points when `nonce` changes (route legs, a player, …). */
+  fitRequest: { points: XZ[]; nonce: number } | null;
+  /** Live players of the current world; empty when the layer is off. */
+  players: readonly OnlinePlayer[];
+  /** Player marker click → uuid. */
+  onPlayerClick?: (uuid: string) => void;
 }
 
 const ll = (p: LatLngLike) => L.latLng(p.lat, p.lng);
@@ -117,6 +122,33 @@ function fitOptions(map: L.Map, maxZoom: number): L.FitBoundsOptions {
   };
 }
 
+/**
+ * Marker for one online player: a coloured dot with a heading cone and a name label, in the style of
+ * a Google Maps live marker. The whole icon is re-created only when the name or colour changes;
+ * moves are applied with `setLatLng` and the heading with a CSS variable, so the CSS transition
+ * animates between polls.
+ */
+function playerIcon(p: OnlinePlayer): L.DivIcon {
+  const colour = playerColour(p.uuid);
+  return L.divIcon({
+    className: styles.playerMarker,
+    html:
+      `<div class="${styles.player}" style="--player-colour:${colour}">` +
+      `<span class="${styles.playerCone}" aria-hidden="true"></span>` +
+      `<span class="${styles.playerDot}" aria-hidden="true"></span>` +
+      `<span class="${styles.playerName}">${escapeHtml(p.name)}</span>` +
+      `</div>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+  });
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) =>
+    c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : c === '"' ? "&quot;" : "&#39;",
+  );
+}
+
 function endpointIcon(which: "from" | "to"): L.DivIcon {
   return L.divIcon({
     className: "",
@@ -136,7 +168,7 @@ function pathLatLngs(layer: L.Layer): L.LatLng[] {
 }
 
 export default function MapView(props: MapViewProps) {
-  const { tileTemplate, worldKey, zoom, spawn, features, allFeatures, selectedId, flyRequest, onSelect, editing, navigation } = props;
+  const { tileTemplate, worldKey, zoom, spawn, features, allFeatures, selectedId, flyRequest, onSelect, editing, navigation, fitRequest, players, onPlayerClick } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const tileRef = useRef<L.TileLayer | null>(null);
@@ -154,15 +186,20 @@ export default function MapView(props: MapViewProps) {
   const routeHighlightRef = useRef<L.LayerGroup | null>(null);
   const routeRendererRef = useRef<L.Renderer | null>(null);
   const endpointLayerRef = useRef<L.LayerGroup | null>(null);
+  const playerLayerRef = useRef<L.LayerGroup | null>(null);
+  /** uuid -> marker, so a moving player keeps its DOM element (and its CSS transition). */
+  const playerMarkersRef = useRef(new Map<string, { marker: L.Marker; name: string }>());
+  const playerClickRef = useRef(onPlayerClick);
   /** The DOM event of the last feature click, so the map click it bubbles into is not "empty map". */
   const featureClickEventRef = useRef<Event | null>(null);
 
   useEffect(() => {
     selectRef.current = onSelect;
+    playerClickRef.current = onPlayerClick;
     editingRef.current = editing;
     navigationRef.current = navigation;
     maxZoomRef.current = zoom.max;
-  }, [onSelect, editing, navigation, zoom.max]);
+  }, [onSelect, onPlayerClick, editing, navigation, zoom.max]);
 
   // Create the map once.
   useEffect(() => {
@@ -182,6 +219,8 @@ export default function MapView(props: MapViewProps) {
     map.createPane("halo").style.zIndex = "390";
     map.createPane("draft").style.zIndex = "450";
     map.createPane("route").style.zIndex = "420";
+    // Players ride above every drawn layer but below Leaflet's own popups/controls.
+    map.createPane("players").style.zIndex = "620";
     routeRendererRef.current = L.canvas({ pane: "route" });
     haloRendererRef.current = L.canvas({ pane: "halo" });
     draftRendererRef.current = L.svg({ pane: "draft" });
@@ -212,9 +251,11 @@ export default function MapView(props: MapViewProps) {
     routeHighlightRef.current = L.layerGroup().addTo(map);
     routeLayerRef.current = L.layerGroup().addTo(map);
     endpointLayerRef.current = L.layerGroup().addTo(map);
+    playerLayerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
     const ro = new ResizeObserver(() => map.invalidateSize());
     ro.observe(el);
+    const playerMarkers = playerMarkersRef.current;
     return () => {
       ro.disconnect();
       map.pm.disableDraw();
@@ -222,6 +263,7 @@ export default function MapView(props: MapViewProps) {
       mapRef.current = null;
       tileRef.current = null;
       draftPathRef.current = null;
+      playerMarkers.clear();
     };
   }, []);
 
@@ -443,7 +485,6 @@ export default function MapView(props: MapViewProps) {
   const highlightLeg = navigation?.highlightLeg ?? null;
   const navFrom = navigation?.from ?? null;
   const navTo = navigation?.to ?? null;
-  const fitRequest = navigation?.fitRequest ?? null;
 
   // Route legs, styled per mode; hovering a leg reports it.
   useEffect(() => {
@@ -507,6 +548,52 @@ export default function MapView(props: MapViewProps) {
     add("from", navFrom);
     add("to", navTo);
   }, [navFrom, navTo, zoom.max]);
+
+  // Live players: markers are reused across polls so CSS transitions animate the movement.
+  useEffect(() => {
+    const group = playerLayerRef.current;
+    if (!group) return;
+    const markers = playerMarkersRef.current;
+    const seen = new Set<string>();
+    for (const p of players) {
+      seen.add(p.uuid);
+      const latlng = ll(vertexLatLngs([{ x: p.x, z: p.z }], zoom.max)[0]!);
+      const existing = markers.get(p.uuid);
+      let marker: L.Marker;
+      if (existing && existing.name === p.name) {
+        marker = existing.marker;
+        marker.setLatLng(latlng);
+      } else {
+        existing?.marker.remove();
+        marker = L.marker(latlng, {
+          icon: playerIcon(p),
+          pane: "players",
+          keyboard: false,
+          interactive: true,
+          snapIgnore: true,
+          zIndexOffset: 500,
+        });
+        marker.on("click", (e: L.LeafletMouseEvent) => {
+          // Do not let the click reach the map (which would drop the selection or pick a route point).
+          L.DomEvent.stopPropagation(e);
+          playerClickRef.current?.(p.uuid);
+        });
+        marker.addTo(group);
+        markers.set(p.uuid, { marker, name: p.name });
+      }
+      const el = marker.getElement();
+      if (el) {
+        el.style.setProperty("--player-heading", `${screenHeading(p.yaw)}deg`);
+        el.title = playerTitle(p);
+      }
+    }
+    for (const [uuid, entry] of markers) {
+      if (!seen.has(uuid)) {
+        entry.marker.remove();
+        markers.delete(uuid);
+      }
+    }
+  }, [players, zoom.max]);
 
   // Fit to a route or leg on request.
   useEffect(() => {

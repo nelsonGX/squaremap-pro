@@ -4,6 +4,7 @@ import dev.nelsongx.map.core.store.FeatureStore;
 import dev.nelsongx.map.fabric.auth.PermissionChecker;
 import dev.nelsongx.map.fabric.auth.SessionStore;
 import dev.nelsongx.map.fabric.auth.TokenStore;
+import dev.nelsongx.map.fabric.player.PlayerDirectory;
 import dev.nelsongx.map.fabric.world.WorldDirectory;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -22,6 +23,7 @@ import java.util.function.Supplier;
  * @param features feature store supplier (null until opened)
  * @param permissions permission checker (may hop to the server thread internally)
  * @param worlds world directory
+ * @param players online player directory (live positions for the player layer)
  * @param tilesDir squaremap tiles directory supplier (null when squaremap is absent)
  * @param webLoader class loader holding the bundled web export
  * @param webPrefix resource prefix of the web export, e.g. {@code web/}
@@ -36,6 +38,7 @@ public record ApiServices(
     Supplier<FeatureStore> features,
     PermissionChecker permissions,
     WorldDirectory worlds,
+    PlayerDirectory players,
     Supplier<Path> tilesDir,
     ClassLoader webLoader,
     String webPrefix,
@@ -50,6 +53,7 @@ public record ApiServices(
     Objects.requireNonNull(features, "features");
     Objects.requireNonNull(permissions, "permissions");
     Objects.requireNonNull(worlds, "worlds");
+    Objects.requireNonNull(players, "players");
     Objects.requireNonNull(tilesDir, "tilesDir");
     Objects.requireNonNull(webLoader, "webLoader");
     Objects.requireNonNull(webPrefix, "webPrefix");
@@ -69,7 +73,7 @@ public record ApiServices(
     Clock clock = Clock.systemUTC();
     return new ApiServices(Runnable::run, new TokenStore(clock), () -> null, () -> null,
         actor -> java.util.concurrent.CompletableFuture.completedFuture(false), List::of,
-        () -> null, ApiServices.class.getClassLoader(), WEB_PREFIX, clock,
+        PlayerDirectory.EMPTY, () -> null, ApiServices.class.getClassLoader(), WEB_PREFIX, clock,
         FeatureChangeListener.NONE);
   }
 }

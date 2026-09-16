@@ -1,6 +1,7 @@
 package dev.nelsongx.map.fabric.squaremap;
 
 import java.nio.file.Path;
+import java.util.UUID;
 import java.util.function.Consumer;
 
 /**
@@ -8,7 +9,7 @@ import java.util.function.Consumer;
  * never load squaremap classes.
  */
 // THREADING: available(), tilesDir(), putMarker(), removeMarker(), clearMarkers(),
-// onWorldRegistered() — ANY THREAD. tick() and onServerStopping() — SERVER THREAD ONLY.
+// onWorldRegistered(), hiddenOnMap() — ANY THREAD. tick() and onServerStopping() — SERVER THREAD ONLY.
 public interface MapLayer {
 
   /** @return whether a map backend is installed and its API is currently loaded */
@@ -33,6 +34,15 @@ public interface MapLayer {
 
   /** Removes a marker if present. */
   void removeMarker(String worldId, String featureId);
+
+  /**
+   * Whether the map backend hides this player (squaremap's {@code /squaremap hide}, the
+   * {@code PlayerManager} API and persistent hide state). Always false without a backend.
+   *
+   * @param uuid player UUID
+   * @return whether the player must be left off the map
+   */
+  boolean hiddenOnMap(UUID uuid);
 
   /** Removes all of our markers of a world. */
   void clearMarkers(String worldId);

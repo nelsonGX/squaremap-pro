@@ -6,8 +6,24 @@
 import { validateInput } from "../editor/validate";
 import { fixtureRoute } from "./fixtureRoute";
 import { ApiError, type ApiClient } from "./client";
-import { parseAuthMe, parseFeature, parseFeatureList, parseWorlds, type ParsedFeatureList } from "./guards";
-import type { AuthMe, Feature, FeatureInput, FeatureUpdate, RouteRequest, RouteResponse, World } from "./types";
+import {
+  parseAuthMe,
+  parseFeature,
+  parseFeatureList,
+  parsePlayerList,
+  parseWorlds,
+  type ParsedFeatureList,
+} from "./guards";
+import type {
+  AuthMe,
+  Feature,
+  FeatureInput,
+  FeatureUpdate,
+  PlayerList,
+  RouteRequest,
+  RouteResponse,
+  World,
+} from "./types";
 
 /** The fixture's logged-in editor. */
 export const FIXTURE_PLAYER = { uuid: "0f2c7a4e-5d0b-4c34-9a57-2f1f6c8e9b11", name: "FixtureEditor" };
@@ -166,6 +182,33 @@ function deepCopy<T>(v: T): T {
  * revision (409 with `current`), unknown feature (404), type change (400), deleting a railway that
  * still has stations (422).
  */
+/** Fixture players walking slow circles, so the live layer visibly moves in `next dev`. */
+export function fixturePlayers(worldId: string, nowMs: number): unknown {
+  if (worldId !== "minecraft:overworld") return { players: [], max: 20 };
+  const t = nowMs / 1000;
+  const walker = (name: string, uuid: string, cx: number, cz: number, radius: number, period: number, phase: number) => {
+    const a = ((t / period) * 2 * Math.PI + phase) % (2 * Math.PI);
+    return {
+      uuid,
+      name,
+      world: worldId,
+      x: Math.round(cx + radius * Math.cos(a)),
+      y: 64,
+      z: Math.round(cz + radius * Math.sin(a)),
+      // Minecraft yaw: 0 = south (+z), increasing clockwise when seen from above.
+      yaw: Math.round((((-a * 180) / Math.PI + 90) % 360 + 360) % 360),
+    };
+  };
+  return {
+    players: [
+      walker(STEVE.name, STEVE.uuid, 0, 0, 70, 40, 0),
+      walker(ALEX.name, ALEX.uuid, 150, 90, 45, 55, 2),
+      walker(FIXTURE_PLAYER.name, FIXTURE_PLAYER.uuid, -80, 45, 30, 30, 4),
+    ],
+    max: 20,
+  };
+}
+
 export class FixtureApiClient implements ApiClient {
   private readonly worlds: World[];
   private readonly features: Map<string, Feature[]>;
@@ -216,6 +259,10 @@ export class FixtureApiClient implements ApiClient {
 
   listFeatures(worldId: string, signal?: AbortSignal): Promise<ParsedFeatureList> {
     return this.respond(signal, () => ({ schemaVersion: 1 as const, features: deepCopy(this.list(worldId)), skipped: [] }));
+  }
+
+  listPlayers(worldId: string, signal?: AbortSignal): Promise<PlayerList> {
+    return this.respond(signal, () => unwrap(parsePlayerList(fixturePlayers(worldId, this.now().getTime()))));
   }
 
   me(signal?: AbortSignal): Promise<AuthMe> {

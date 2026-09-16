@@ -1,6 +1,7 @@
 package dev.nelsongx.map.fabric.squaremap;
 
 import java.nio.file.Path;
+import java.util.UUID;
 import java.util.function.Consumer;
 
 /** Map layer used when squaremap is absent: draws nothing. */
@@ -23,6 +24,11 @@ public final class NoopMapLayer implements MapLayer {
 
   @Override
   public void removeMarker(String worldId, String featureId) {
+  }
+
+  @Override
+  public boolean hiddenOnMap(UUID uuid) {
+    return false;
   }
 
   @Override

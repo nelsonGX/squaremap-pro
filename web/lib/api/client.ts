@@ -7,19 +7,32 @@ import {
   parseAuthMe,
   parseFeature,
   parseFeatureList,
+  parsePlayerList,
   parseRouteResponse,
   parseWorlds,
   type Parsed,
   type ParsedFeatureList,
 } from "./guards";
 import { httpStatusForRoute, routePath } from "../navigation/legs";
-import type { AuthMe, Feature, FeatureInput, FeatureUpdate, RouteRequest, RouteResponse, ValidationDetail, World } from "./types";
+import type {
+  AuthMe,
+  Feature,
+  FeatureInput,
+  FeatureUpdate,
+  PlayerList,
+  RouteRequest,
+  RouteResponse,
+  ValidationDetail,
+  World,
+} from "./types";
 
 export interface ApiClient {
   /** `GET /api/worlds` */
   listWorlds(signal?: AbortSignal): Promise<World[]>;
   /** `GET /api/worlds/{world}/features` */
   listFeatures(worldId: string, signal?: AbortSignal): Promise<ParsedFeatureList>;
+  /** `GET /api/players?world=` — live positions for the player layer. */
+  listPlayers(worldId: string, signal?: AbortSignal): Promise<PlayerList>;
   /** `GET /api/auth/me` */
   me(signal?: AbortSignal): Promise<AuthMe>;
   /** `POST /api/auth/logout` → 204 */
@@ -107,6 +120,10 @@ export class HttpApiClient implements ApiClient {
 
   listFeatures(worldId: string, signal?: AbortSignal): Promise<ParsedFeatureList> {
     return this.request("GET", `/api/worlds/${worldSegment(worldId)}/features`, undefined, signal, parseFeatureList);
+  }
+
+  listPlayers(worldId: string, signal?: AbortSignal): Promise<PlayerList> {
+    return this.request("GET", `/api/players?world=${encodeURIComponent(worldId)}`, undefined, signal, parsePlayerList);
   }
 
   me(signal?: AbortSignal): Promise<AuthMe> {

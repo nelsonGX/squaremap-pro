@@ -5,6 +5,7 @@ import dev.nelsongx.map.fabric.auth.AuthServices;
 import dev.nelsongx.map.fabric.http.api.ApiServices;
 import dev.nelsongx.map.fabric.http.api.FeatureChangeListener;
 import dev.nelsongx.map.fabric.squaremap.FeatureMirror;
+import dev.nelsongx.map.fabric.player.LevelPlayerDirectory;
 import dev.nelsongx.map.fabric.world.WorldDirectory;
 import dev.nelsongx.map.fabric.world.LevelWorldDirectory;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
@@ -48,9 +49,13 @@ public final class MapFabricMod implements ModInitializer {
   private static volatile HttpLifecycle http;
   private static volatile StoreHolder<FeatureStore> features;
   private static volatile LevelWorldDirectory worlds;
+  private static volatile LevelPlayerDirectory players;
 
   /** Feature database location relative to the world save root. */
   public static final String FEATURES_DB = "data/squaremap-pro/map.sqlite";
+
+  /** How often online player positions are re-snapshotted, in server ticks. */
+  private static final int PLAYER_REFRESH_TICKS = 10;
 
   /** @return the shared map layer (null before mod init). ANY THREAD. */
   public static MapLayer mapLayer() {
@@ -89,6 +94,11 @@ public final class MapFabricMod implements ModInitializer {
     // Levels added/removed at runtime (dimension mods): re-snapshot every 100 ticks on the server
     // thread (ServerTickEvents.EndTick#onEndTick(MinecraftServer)); publishes only on change.
     ServerTickEvents.END_SERVER_TICK.register(s -> {
+      // Player positions drive a live layer on the web map: re-snapshot every 10 ticks (0.5 s).
+      LevelPlayerDirectory playerDir = players;
+      if (playerDir != null && s.getTickCount() % PLAYER_REFRESH_TICKS == 0) {
+        playerDir.refresh(s);
+      }
       LevelWorldDirectory dir = worlds;
       if (dir != null && s.getTickCount() % 100 == 0) {
         dir.refresh(s);
@@ -115,6 +125,9 @@ public final class MapFabricMod implements ModInitializer {
       LevelWorldDirectory worldDir = new LevelWorldDirectory(layer::available);
       worldDir.refresh(s);
       worlds = worldDir;
+      LevelPlayerDirectory playerDir = new LevelPlayerDirectory(layer::hiddenOnMap);
+      playerDir.refresh(s);
+      players = playerDir;
       // MinecraftServer.getWorldPath(LevelResource) only resolves a path (no I/O).
       Path worldRoot = s.getWorldPath(LevelResource.ROOT);
       Path sessionsDb = worldRoot.resolve(AuthServices.SESSIONS_DB);
@@ -141,7 +154,7 @@ public final class MapFabricMod implements ModInitializer {
           LOGGER.warn("squaremap-pro stores not opened (server stopping)");
         }
         return new ApiServices(ex, services.tokens(), services::sessions, featureStore::get,
-            services.permissions(), worldDir, layer::tilesDir, MapFabricMod.class.getClassLoader(),
+            services.permissions(), worldDir, playerDir, layer::tilesDir, MapFabricMod.class.getClassLoader(),
             ApiServices.WEB_PREFIX, clock,
             config.squaremapMirror() ? mirror : FeatureChangeListener.NONE);
       });
@@ -161,6 +174,11 @@ public final class MapFabricMod implements ModInitializer {
       LevelWorldDirectory worldDir = worlds;
       if (worldDir != null) {
         worldDir.clear();
+      }
+      LevelPlayerDirectory playerDir = players;
+      players = null;
+      if (playerDir != null) {
+        playerDir.clear();
       }
       MapExecutor ex = executor;
       executor = null;

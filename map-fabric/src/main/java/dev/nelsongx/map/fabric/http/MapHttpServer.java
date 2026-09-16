@@ -120,6 +120,7 @@ public final class MapHttpServer {
 
       r.get(HEALTH_PATH, ctx -> reply(ctx, Reply.json(200, okJson())));
       r.get("/api/worlds", ctx -> reply(ctx, api.worlds()));
+      r.get("/api/players", ctx -> reply(ctx, api.players(ctx.queryParam("world"))));
       r.get("/api/worlds/{world}/features", ctx ->
           async(ctx, () -> api.listFeatures(ctx.pathParam("world"))));
       r.post("/api/worlds/{world}/features", ctx -> {

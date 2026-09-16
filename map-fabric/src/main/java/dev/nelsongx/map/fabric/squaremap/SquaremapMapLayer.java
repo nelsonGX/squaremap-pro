@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -116,6 +117,24 @@ public final class SquaremapMapLayer implements MapLayer {
     SimpleLayerProvider p = providers.get(worldId);
     if (p != null) {
       p.removeMarker(SquaremapMarkers.key(featureId));
+    }
+  }
+
+  /**
+   * {@code Squaremap.playerManager()} → {@code PlayerManager.hidden(UUID)} (api v1.3.12). The
+   * implementation ({@code AbstractPlayerManager}, common v1.3.12) reads a {@code Set} of hidden
+   * UUIDs, so a concurrent call can only see a slightly stale value.
+   */
+  @Override
+  public boolean hiddenOnMap(UUID uuid) {
+    Squaremap api = api();
+    if (api == null) {
+      return false;
+    }
+    try {
+      return api.playerManager().hidden(uuid);
+    } catch (RuntimeException | LinkageError e) {
+      return false;
     }
   }
 

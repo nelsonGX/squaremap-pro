@@ -30,6 +30,27 @@ export interface PlayerRef {
   name: string;
 }
 
+/** `GET /api/players` element: one online player, as the server last saw them. */
+export interface OnlinePlayer {
+  /** Dashed UUID. */
+  uuid: string;
+  name: string;
+  /** World id the player is in (`minecraft:overworld`). */
+  world: string;
+  x: number;
+  y: number;
+  z: number;
+  /** Head rotation, degrees clockwise from south (Minecraft yaw), normalised to 0..359. */
+  yaw: number;
+}
+
+/** `GET /api/players[?world=]` */
+export interface PlayerList {
+  players: OnlinePlayer[];
+  /** The server's player slot count. */
+  max: number;
+}
+
 export interface BuildingProps {
   category: BuildingCategory;
   description: string;

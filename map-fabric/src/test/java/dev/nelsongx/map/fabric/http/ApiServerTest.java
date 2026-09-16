@@ -16,6 +16,9 @@ import dev.nelsongx.map.fabric.auth.SessionStore;
 import dev.nelsongx.map.fabric.auth.TokenStore;
 import dev.nelsongx.map.fabric.http.api.ApiServices;
 import dev.nelsongx.map.fabric.http.api.FeatureChangeListener;
+import dev.nelsongx.map.fabric.player.PlayerDirectory;
+import dev.nelsongx.map.fabric.player.PlayerPosition;
+import dev.nelsongx.map.fabric.player.PlayerSnapshot;
 import dev.nelsongx.map.fabric.world.WorldDirectory;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -58,6 +61,9 @@ class ApiServerTest {
   private TokenStore tokens;
   private MapHttpServer server;
   private Path tiles;
+  private final java.util.concurrent.atomic.AtomicReference<PlayerSnapshot> snapshot =
+      new java.util.concurrent.atomic.AtomicReference<>(PlayerSnapshot.EMPTY);
+  private final PlayerDirectory players = snapshot::get;
   private final java.util.List<String> changeLog = new java.util.concurrent.CopyOnWriteArrayList<>();
   private final FeatureChangeListener changes = new FeatureChangeListener() {
     @Override
@@ -90,7 +96,7 @@ class ApiServerTest {
         new WorldDirectory.World(CUSTOM, "my_mod_deep dark"));
     ApiServices services = new ApiServices(executor, tokens, () -> sessions, () -> features,
         actor -> CompletableFuture.completedFuture(allowed.getOrDefault(actor.uuid(), false)),
-        worlds, () -> tiles, ApiServerTest.class.getClassLoader(), "testweb/", clock, changes);
+        worlds, players, () -> tiles, ApiServerTest.class.getClassLoader(), "testweb/", clock, changes);
     HttpConfig config = new HttpConfig(true, "127.0.0.1", 0, List.of(), 5000, 16, "", 168, true,
         Speeds.defaults(), 100, false);
     server = new MapHttpServer(config, services);
@@ -223,6 +229,40 @@ class ApiServerTest {
     assertEquals(2, arr.size());
     assertEquals(OVERWORLD, arr.get(0).getAsJsonObject().get("id").getAsString());
     assertEquals("minecraft_overworld", arr.get(0).getAsJsonObject().get("name").getAsString());
+  }
+
+  @Test
+  void playersAreEmptyAndPublicWithoutAServer() throws Exception {
+    HttpResponse<String> r = get("/api/players");
+    assertEquals(200, r.statusCode());
+    JsonObject o = obj(r);
+    assertEquals(0, o.getAsJsonArray("players").size());
+    assertEquals(0, o.get("max").getAsInt());
+    assertEquals("no-store", r.headers().firstValue("Cache-Control").orElse(null));
+  }
+
+  @Test
+  void playersReportPositionsAndFilterByWorld() throws Exception {
+    snapshot.set(new PlayerSnapshot(List.of(
+        new PlayerPosition(STEVE.uuid().toString(), "Steve", OVERWORLD, 12, 64, -40, 90),
+        new PlayerPosition(ALEX.uuid().toString(), "Alex", CUSTOM, 5, 70, 6, 271)), 20));
+
+    JsonObject all = obj(get("/api/players"));
+    assertEquals(2, all.getAsJsonArray("players").size());
+    assertEquals(20, all.get("max").getAsInt());
+
+    JsonObject one = obj(get("/api/players?world=" + OVERWORLD));
+    assertEquals(1, one.getAsJsonArray("players").size());
+    JsonObject steve = one.getAsJsonArray("players").get(0).getAsJsonObject();
+    assertEquals("Steve", steve.get("name").getAsString());
+    assertEquals(STEVE.uuid().toString(), steve.get("uuid").getAsString());
+    assertEquals(OVERWORLD, steve.get("world").getAsString());
+    assertEquals(12, steve.get("x").getAsInt());
+    assertEquals(64, steve.get("y").getAsInt());
+    assertEquals(-40, steve.get("z").getAsInt());
+    assertEquals(90, steve.get("yaw").getAsInt());
+
+    assertEquals(0, obj(get("/api/players?world=minecraft:nope")).getAsJsonArray("players").size());
   }
 
   @Test
@@ -464,7 +504,7 @@ class ApiServerTest {
         new HttpConfig(true, "127.0.0.1", 0, List.of(), 300, 4),
         new ApiServices(executor, tokens, () -> sessions, () -> features,
             a -> new CompletableFuture<>(), // never completes
-            () -> List.of(new WorldDirectory.World(OVERWORLD, "o")), () -> null,
+            () -> List.of(new WorldDirectory.World(OVERWORLD, "o")), PlayerDirectory.EMPTY, () -> null,
             ApiServerTest.class.getClassLoader(), "testweb/", Clock.systemUTC(), FeatureChangeListener.NONE));
     slow.start();
     try {
@@ -486,7 +526,8 @@ class ApiServerTest {
   void missingBundleIsReported() throws Exception {
     MapHttpServer bare = new MapHttpServer(new HttpConfig(true, "127.0.0.1", 0, List.of(), 5000, 4),
         new ApiServices(executor, tokens, () -> null, () -> null,
-            a -> CompletableFuture.completedFuture(false), List::of, () -> null,
+            a -> CompletableFuture.completedFuture(false), List::of, PlayerDirectory.EMPTY,
+            () -> null,
             ApiServerTest.class.getClassLoader(), "no-such-bundle/", Clock.systemUTC(),
             FeatureChangeListener.NONE));
     bare.start();

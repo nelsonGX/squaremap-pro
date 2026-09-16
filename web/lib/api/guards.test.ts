@@ -4,6 +4,7 @@ import {
   parseAuthMe,
   parseFeature,
   parseFeatureList,
+  parsePlayerList,
   parseRouteResponse,
   parseWorlds,
 } from "./guards";
@@ -165,5 +166,31 @@ describe("parseRouteResponse (schema v2)", () => {
     expect(problem(parseRouteResponse(rail))).toMatch(/fromStation/);
     expect(problem(parseRouteResponse({ ...ok, status: "no_path" }))).toMatch(/legs present/);
     expect(problem(parseRouteResponse({ ...ok, status: "teleport" }))).toMatch(/status/);
+  });
+});
+
+describe("parsePlayerList", () => {
+  const steve = { uuid: "069a79f4-44e9-4726-a5be-fca90e38aaf5", name: "Steve", world: "minecraft:overworld", x: 1, y: 64, z: -2, yaw: 90 };
+
+  it("accepts a well-formed list", () => {
+    const r = parsePlayerList({ players: [steve], max: 20 });
+    expect(r.ok && r.value).toEqual({ players: [steve], max: 20 });
+  });
+
+  it("drops malformed entries instead of failing", () => {
+    const r = parsePlayerList({ players: [steve, { uuid: "x" }, { ...steve, x: 1.5 }], max: 20 });
+    expect(r.ok && r.value.players).toEqual([steve]);
+  });
+
+  it("defaults a missing or negative max to 0", () => {
+    const missing = parsePlayerList({ players: [] });
+    expect(missing.ok && missing.value.max).toBe(0);
+    const neg = parsePlayerList({ players: [], max: -3 });
+    expect(neg.ok && neg.value.max).toBe(0);
+  });
+
+  it("rejects a body that is not {players: []}", () => {
+    expect(problem(parsePlayerList({ max: 1 }))).toMatch(/players/);
+    expect(problem(parsePlayerList([]))).toMatch(/players/);
   });
 });

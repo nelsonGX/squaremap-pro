@@ -13,6 +13,7 @@ import {
   TYPE_LABELS,
   UNKNOWN_RAILWAY_COLOUR,
 } from "../lib/features/styles";
+import { BackIcon, CloseIcon, DirectionsIcon } from "./icons";
 import styles from "./ViewerApp.module.css";
 
 export interface FeatureCardProps {
@@ -85,7 +86,7 @@ export default function FeatureCard({ feature: f, allFeatures, onClose, onOpen, 
       <div className={styles.cardHeader}>
         {onBack && (
           <button type="button" className={styles.iconButton} onClick={onBack} aria-label="Back to results" title="Back to results">
-            ←
+            <BackIcon size={20} />
           </button>
         )}
         <div className={styles.cardTitles}>
@@ -95,14 +96,17 @@ export default function FeatureCard({ feature: f, allFeatures, onClose, onOpen, 
           <p className={styles.cardType}>{TYPE_LABELS[f.type]}</p>
         </div>
         <button type="button" className={styles.iconButton} onClick={onClose} aria-label="Close" title="Close">
-          ×
+          <CloseIcon size={20} />
         </button>
       </div>
 
       {onDirections && (
         <div className={styles.cardActions}>
-          <button type="button" className={styles.primaryButton} onClick={() => onDirections(f)}>
-            Directions to here
+          <button type="button" className={styles.actionButton} onClick={() => onDirections(f)}>
+            <span className={styles.actionIcon} aria-hidden="true">
+              <DirectionsIcon size={20} />
+            </span>
+            Directions
           </button>
         </div>
       )}

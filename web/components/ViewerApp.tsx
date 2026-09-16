@@ -1,14 +1,15 @@
 "use client";
 
 /**
- * Map viewer + editor: full-screen squaremap tiles + drawn features, with a left side panel (bottom
- * sheet on narrow screens) for search, world switching, layer toggles, the feature info card and —
- * for players with edit permission — the editor.
+ * Map viewer + editor, laid out like Google Maps: a full-screen map with floating chrome over it —
+ * a search "omnibox" and category chips at the top left, a results / place / directions sheet under
+ * them (a bottom sheet on narrow screens), the account button at the top right, the world picker at
+ * the bottom left and round map controls at the bottom right.
  */
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createApiClient, type ApiClient } from "../lib/api";
-import type { AuthMe, Feature, FeatureType, World, XZ } from "../lib/api/types";
+import type { AuthMe, Feature, FeatureType, OnlinePlayer, World, XZ } from "../lib/api/types";
 import { FEATURE_TYPES } from "../lib/api/types";
 import { TILES_BASE, USE_FIXTURES } from "../lib/config";
 import { parseAuthQuery } from "../lib/editor/authQuery";
@@ -49,9 +50,20 @@ import {
   worldTileTemplate,
   type WorldSettings,
 } from "../lib/squaremapSettings";
-import DirectionsPanel, { type Endpoint, type RouteView, type Which } from "./DirectionsPanel";
+import { PLAYER_POLL_MS, playerColour, playersInWorld, playerTitle } from "../lib/players/players";
+import { DirectionsHeader, DirectionsResults, type Endpoint, type RouteView, type Which } from "./DirectionsPanel";
 import EditorPanel from "./EditorPanel";
 import FeatureCard from "./FeatureCard";
+import {
+  CloseIcon,
+  DirectionsIcon,
+  LayersIcon,
+  MenuIcon,
+  PencilIcon,
+  PeopleIcon,
+  PersonIcon,
+  SearchIcon,
+} from "./icons";
 import type { FlyRequest, MapDraft, MapEditing, MapNavigation } from "./MapView";
 import styles from "./ViewerApp.module.css";
 
@@ -67,13 +79,10 @@ const LAYER_SWATCH: Record<FeatureType, string> = {
   station: "#ffffff",
 };
 
-type AppMode = "explore" | "directions" | "edit";
+/** Stable empty list, so switching the player layer off does not re-render the marker effect. */
+const EMPTY_PLAYERS: readonly OnlinePlayer[] = [];
 
-const MODE_TABS: { mode: AppMode; label: string }[] = [
-  { mode: "explore", label: "Explore" },
-  { mode: "directions", label: "Directions" },
-  { mode: "edit", label: "Edit" },
-];
+type AppMode = "explore" | "directions" | "edit";
 
 type Load<T> = { status: "loading" } | { status: "ok"; value: T } | { status: "error"; message: string };
 
@@ -123,6 +132,18 @@ export default function ViewerApp() {
   const [fromResults, setFromResults] = useState(false);
   const [flyRequest, setFlyRequest] = useState<FlyRequest | null>(null);
   const [sheetOpen, setSheetOpen] = useState(true);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [worldPickerOpen, setWorldPickerOpen] = useState(false);
+
+  // ---- live player layer ----
+  const [showPlayers, setShowPlayers] = useState(true);
+  /** Last poll result, tagged with the world it came from so a world switch is not shown stale. */
+  const [players, setPlayers] = useState<{ worldId: string | null; list: OnlinePlayer[]; max: number }>({
+    worldId: null,
+    list: [],
+    max: 0,
+  });
+  const [playerListOpen, setPlayerListOpen] = useState(false);
 
   const [auth, setAuth] = useState<AuthMe | null>(null);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
@@ -240,6 +261,40 @@ export default function ViewerApp() {
       });
     return () => ac.abort();
   }, [api, worldId, reloadFeatures]);
+
+  // Live players of the selected world, polled while the layer is on and the tab is visible.
+  // A failed poll only empties the layer: it is decoration and must never surface an error.
+  useEffect(() => {
+    if (!worldId || !showPlayers) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let ac = new AbortController();
+    const tick = () => {
+      if (stopped) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        timer = setTimeout(tick, PLAYER_POLL_MS);
+        return;
+      }
+      ac = new AbortController();
+      api
+        .listPlayers(worldId, ac.signal)
+        .then((r) => {
+          if (!stopped) setPlayers({ worldId, list: playersInWorld(r.players, worldId), max: r.max });
+        })
+        .catch((e: unknown) => {
+          if (!stopped && !isAbort(e)) setPlayers({ worldId, list: [], max: 0 });
+        })
+        .finally(() => {
+          if (!stopped) timer = setTimeout(tick, PLAYER_POLL_MS);
+        });
+    };
+    tick();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      ac.abort();
+    };
+  }, [api, worldId, showPlayers]);
 
   // Warn before leaving the page with unsaved edits.
   useEffect(() => {
@@ -609,7 +664,6 @@ export default function ViewerApp() {
           to: navTo?.point ?? null,
           route: shownRoute,
           highlightLeg: hoverLeg,
-          fitRequest,
           onClick: onNavMapClick,
           onDrag: onNavDrag,
           onHoverLeg: setHoverLeg,
@@ -617,11 +671,31 @@ export default function ViewerApp() {
       : null;
 
   const showResults = query.trim() !== "" && !selected && mode === "explore";
-  const tabs = MODE_TABS.filter((t) => t.mode !== "edit" || canEdit);
   const worldList = worlds.status === "ok" ? worlds.value : [];
+  const currentWorld = worldList.find((w) => w.id === worldId) ?? null;
+  const worldLabel = currentWorld ? (currentWorld.name || currentWorld.id) : worlds.status === "loading" ? "Loading…" : "No world";
+  // Derived, not state: a world switch or a switched-off layer empties it without another render.
+  const livePlayers = showPlayers && players.worldId === worldId ? players.list : EMPTY_PLAYERS;
+  const notices =
+    worlds.status === "error" ||
+    featureLoad.status === "error" ||
+    featuresLoading ||
+    (featureLoad.status === "ok" && featureLoad.value.skipped > 0) ||
+    (settings?.warning != null && settings.worldId === worldId) ||
+    authMessage !== null;
+  /** The sheet under the search bar has something to show. */
+  const panelHasContent = mode !== "explore" || selected !== null || showResults || notices || playerListOpen;
+
+  const openPlayerOnMap = (uuid: string) => {
+    const p = livePlayers.find((x) => x.uuid === uuid);
+    if (!p) return;
+    setPlayerListOpen(true);
+    setSheetOpen(true);
+    setFitRequest((prev) => ({ points: [{ x: p.x, z: p.z }], nonce: (prev?.nonce ?? 0) + 1 }));
+  };
 
   return (
-    <div className={styles.root}>
+    <div className={styles.root} data-sheet={panelHasContent && sheetOpen ? "open" : "closed"}>
       <main className={styles.mapArea}>
         <MapView
           tileTemplate={worldId && !USE_FIXTURES ? worldTileTemplate(TILES_BASE, worldId) : null}
@@ -635,98 +709,84 @@ export default function ViewerApp() {
           onSelect={onMapSelect}
           editing={editing}
           navigation={navigation}
+          fitRequest={fitRequest}
+          players={livePlayers}
+          onPlayerClick={openPlayerOnMap}
         />
       </main>
 
-      <aside className={`${styles.panel} ${sheetOpen ? "" : styles.sheetClosed}`} aria-label="Map panel">
-        <button
-          type="button"
-          className={styles.sheetHandle}
-          onClick={() => setSheetOpen((o) => !o)}
-          aria-expanded={sheetOpen}
-          aria-controls="panel-body"
-          aria-label={sheetOpen ? "Collapse panel" : "Expand panel"}
-        >
-          <span />
-        </button>
-
-        <div className={styles.tabs} role="tablist" aria-label="Mode">
-          {tabs.map((t) => (
-            <button
-              key={t.mode}
-              type="button"
-              role="tab"
-              aria-selected={mode === t.mode}
-              className={styles.tab}
-              onClick={() => {
-                switchMode(t.mode);
-                setSheetOpen(true);
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        <div className={styles.searchRow} role="search" hidden={mode === "directions"}>
-          <input
-            type="search"
-            className={styles.search}
-            placeholder="Search buildings, roads, railways, stations"
-            aria-label="Search features by name"
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              if (!editMode) setSelectedId(null);
-              setSheetOpen(true);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && results[0]) openFromList(results[0], true);
-              if (e.key === "Escape") setQuery("");
-            }}
-            autoComplete="off"
-            spellCheck={false}
+      {/* Left rail: search / directions header, category chips and the sheet beneath them. */}
+      <div className={styles.leftRail}>
+        {mode === "directions" ? (
+          <DirectionsHeader
+            texts={navTexts}
+            endpoints={navEnds}
+            pickTarget={pickTarget}
+            modes={navModes}
+            allFeatures={allFeatures}
+            railwayNames={railwayNames}
+            onText={onNavText}
+            onPickFeature={onNavPickFeature}
+            onPickTarget={setPickTarget}
+            onSwap={swapEndpoints}
+            onModes={setNavModes}
+            onClose={() => switchMode("explore")}
           />
-        </div>
-
-        <div id="panel-body" className={styles.panelBody}>
-          {(auth?.loggedIn || authMessage) && (
-            <div className={styles.accountRow}>
-              {auth?.loggedIn && (
-                <>
-                  <span className={styles.accountName} title={auth.uuid}>
-                    {auth.name}
-                  </span>
-                  {!canEdit && <span className={styles.muted}>View only</span>}
-                  <button type="button" className={styles.textButton} onClick={logout}>
-                    Log out
-                  </button>
-                </>
+        ) : (
+          <>
+            <div className={styles.omnibox} role="search">
+              <button
+                type="button"
+                className={styles.omniButton}
+                onClick={() => setSheetOpen((o) => !o)}
+                aria-expanded={sheetOpen}
+                aria-controls="map-sheet"
+                aria-label={sheetOpen ? "Hide the panel" : "Show the panel"}
+                title="Panel"
+              >
+                <MenuIcon size={20} />
+              </button>
+              <input
+                type="search"
+                className={styles.omniInput}
+                placeholder={editMode ? "Search a feature to edit" : "Search buildings, roads, railways"}
+                aria-label="Search features by name"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  if (!editMode) setSelectedId(null);
+                  setSheetOpen(true);
+                  setPlayerListOpen(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && results[0]) openFromList(results[0], true);
+                  if (e.key === "Escape") setQuery("");
+                }}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              {query === "" ? (
+                <span className={styles.omniSearchIcon} aria-hidden="true">
+                  <SearchIcon size={20} />
+                </span>
+              ) : (
+                <button type="button" className={styles.omniButton} onClick={() => setQuery("")} aria-label="Clear search" title="Clear">
+                  <CloseIcon size={20} />
+                </button>
               )}
-              {authMessage && (
-                <p className={styles.warn} role="alert">
-                  {authMessage}{" "}
-                  <button type="button" className={styles.textButton} onClick={() => setAuthMessage(null)} aria-label="Dismiss">
-                    ×
-                  </button>
-                </p>
-              )}
+              <span className={styles.omniDivider} aria-hidden="true" />
+              <button
+                type="button"
+                className={styles.omniDirections}
+                onClick={() => switchMode("directions")}
+                aria-label="Directions"
+                title="Directions"
+              >
+                <DirectionsIcon size={20} />
+              </button>
             </div>
-          )}
 
-          <div className={styles.controls}>
-            <label className={styles.worldSelect}>
-              <span className={styles.srOnly}>World</span>
-              <select value={worldId ?? ""} onChange={(e) => changeWorld(e.target.value)} disabled={worldList.length === 0}>
-                {worldList.length === 0 && <option value="">{worlds.status === "loading" ? "Loading worlds…" : "No worlds"}</option>}
-                {worldList.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name && w.name !== w.id ? `${w.name} (${w.id})` : w.id}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className={styles.chips} role="group" aria-label="Layers">
+            <div className={styles.chipsBar} role="group" aria-label="Map layers">
               {FEATURE_TYPES.map((t) => (
                 <button
                   key={t}
@@ -740,170 +800,354 @@ export default function ViewerApp() {
                   <span className={styles.chipCount}>{counts[t]}</span>
                 </button>
               ))}
+              <button
+                type="button"
+                className={styles.chip}
+                aria-pressed={showPlayers}
+                onClick={() => {
+                  setShowPlayers((s) => !s);
+                  setPlayerListOpen(false);
+                }}
+                title="Live player positions from the server"
+              >
+                <PeopleIcon size={14} />
+                Players
+                {showPlayers && <span className={styles.chipCount}>{livePlayers.length}</span>}
+              </button>
             </div>
-          </div>
+          </>
+        )}
 
-          <div aria-live="polite">
-            {worlds.status === "error" && (
-              <div className={styles.error} role="alert">
-                <p>Could not load worlds. {worlds.message}</p>
-                <button
-                  type="button"
-                  className={styles.textButton}
-                  onClick={() => {
-                    setWorlds({ status: "loading" });
-                    setReloadWorlds((n) => n + 1);
-                  }}
-                >
-                  Retry
-                </button>
-              </div>
-            )}
-            {featureLoad.status === "error" && (
-              <div className={styles.error} role="alert">
-                <p>Could not load map features. {featureLoad.message}</p>
-                <button
-                  type="button"
-                  className={styles.textButton}
-                  onClick={() => {
-                    setFeatureLoad({ status: "loading" });
-                    setReloadFeatures((n) => n + 1);
-                  }}
-                >
-                  Retry
-                </button>
-              </div>
-            )}
-            {featuresLoading && <p className={styles.muted}>Loading features…</p>}
-            {featureLoad.status === "ok" && featureLoad.value.skipped > 0 && (
-              <p className={styles.warn}>
-                {featureLoad.value.skipped} feature{featureLoad.value.skipped === 1 ? "" : "s"} could not be displayed
-                (unexpected data).
-              </p>
-            )}
-            {settings?.warning && settings.worldId === worldId && <p className={styles.warn}>{settings.warning}</p>}
-          </div>
+        {panelHasContent && (
+          <section
+            id="map-sheet"
+            className={`${styles.panel} ${sheetOpen ? "" : styles.sheetClosed}`}
+            aria-label="Map panel"
+          >
+            <button
+              type="button"
+              className={styles.sheetHandle}
+              onClick={() => setSheetOpen((o) => !o)}
+              aria-expanded={sheetOpen}
+              aria-label={sheetOpen ? "Collapse panel" : "Expand panel"}
+            >
+              <span />
+            </button>
 
-          {mode === "directions" ? (
-            <DirectionsPanel
-              texts={navTexts}
-              endpoints={navEnds}
-              pickTarget={pickTarget}
-              modes={navModes}
-              view={routeView}
-              allFeatures={allFeatures}
-              railwayNames={railwayNames}
-              highlightLeg={hoverLeg}
-              onText={onNavText}
-              onPickFeature={onNavPickFeature}
-              onPickTarget={setPickTarget}
-              onSwap={swapEndpoints}
-              onModes={setNavModes}
-              onHoverLeg={setHoverLeg}
-              onFocusLeg={(i) => {
-                const leg = shownRoute?.legs[i];
-                if (leg) setFitRequest((prev) => ({ points: leg.points, nonce: (prev?.nonce ?? 0) + 1 }));
-              }}
-              onRetry={() => setRouteRetry((n) => n + 1)}
-            />
-          ) : editMode ? (
-            <>
-              {query.trim() !== "" && results.length > 0 && (
-                <ul className={styles.results} aria-label="Search results">
-                  {results.slice(0, 8).map((f) => (
-                    <li key={f.id}>
-                      <button type="button" className={styles.result} onClick={() => openFromList(f, true)}>
-                        <span className={styles.resultDot} style={{ background: featureDotColour(f, railwayColours) }} aria-hidden="true" />
-                        <span className={styles.resultText}>
-                          <span className={styles.resultName}>{displayName(f)}</span>
-                          <span className={styles.resultSub}>{featureSubtitle(f, railwayNames)}</span>
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+            <div className={styles.panelBody}>
+              <div aria-live="polite">
+                {authMessage && (
+                  <p className={styles.warn} role="alert">
+                    {authMessage}{" "}
+                    <button type="button" className={styles.textButton} onClick={() => setAuthMessage(null)} aria-label="Dismiss">
+                      ×
+                    </button>
+                  </p>
+                )}
+                {worlds.status === "error" && (
+                  <div className={styles.error} role="alert">
+                    <p>Could not load worlds. {worlds.message}</p>
+                    <button
+                      type="button"
+                      className={styles.textButton}
+                      onClick={() => {
+                        setWorlds({ status: "loading" });
+                        setReloadWorlds((n) => n + 1);
+                      }}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+                {featureLoad.status === "error" && (
+                  <div className={styles.error} role="alert">
+                    <p>Could not load map features. {featureLoad.message}</p>
+                    <button
+                      type="button"
+                      className={styles.textButton}
+                      onClick={() => {
+                        setFeatureLoad({ status: "loading" });
+                        setReloadFeatures((n) => n + 1);
+                      }}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+                {featuresLoading && <p className={styles.muted}>Loading features…</p>}
+                {featureLoad.status === "ok" && featureLoad.value.skipped > 0 && (
+                  <p className={styles.warn}>
+                    {featureLoad.value.skipped} feature{featureLoad.value.skipped === 1 ? "" : "s"} could not be displayed
+                    (unexpected data).
+                  </p>
+                )}
+                {settings?.warning && settings.worldId === worldId && <p className={styles.warn}>{settings.warning}</p>}
+              </div>
+
+              {playerListOpen && (
+                <section className={styles.playerPanel} aria-label="Players online">
+                  <div className={styles.sectionHead}>
+                    <h2>
+                      Players online
+                      <span className={styles.badge}>
+                        {livePlayers.length}
+                        {players.max > 0 ? ` / ${players.max}` : ""}
+                      </span>
+                    </h2>
+                    <button type="button" className={styles.iconButton} onClick={() => setPlayerListOpen(false)} aria-label="Close">
+                      <CloseIcon size={18} />
+                    </button>
+                  </div>
+                  {!showPlayers ? (
+                    <p className={styles.muted}>The player layer is switched off.</p>
+                  ) : livePlayers.length === 0 ? (
+                    <p className={styles.muted}>Nobody is in {worldLabel} right now.</p>
+                  ) : (
+                    <ul className={styles.results}>
+                      {livePlayers.map((p) => (
+                        <li key={p.uuid}>
+                          <button type="button" className={styles.result} onClick={() => openPlayerOnMap(p.uuid)}>
+                            <span className={styles.resultDot} style={{ background: playerColour(p.uuid) }} aria-hidden="true" />
+                            <span className={styles.resultText}>
+                              <span className={styles.resultName}>{p.name}</span>
+                              <span className={styles.resultSub}>{playerTitle(p).split(" · ")[1]}</span>
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
               )}
-              <EditorPanel
-                state={editor}
-                dispatch={dispatch}
-                allFeatures={allFeatures}
-                mapHint={mapHint}
-                discardPrompt={pendingAction !== null}
-                onConfirmDiscard={() => {
-                  const action = pendingAction;
-                  setPendingAction(null);
-                  dispatch({ type: "close" });
-                  action?.();
-                }}
-                onKeepEditing={() => setPendingAction(null)}
-                onAdd={addFeature}
-                onSave={() => void save()}
-                onCancel={() => {
-                  dispatch({ type: "close" });
-                  setMapHint(null);
-                  setSelectedId(null);
-                }}
-                onDelete={() => void remove()}
-                onRedraw={() => {
-                  dispatch({ type: "set_geometry", geometry: [] });
-                  setDrawToken((n) => n + 1);
-                }}
-                onReloadLatest={() => void reloadLatest()}
-              />
-            </>
-          ) : selected ? (
-            <FeatureCard
-              feature={selected}
-              allFeatures={allFeatures}
-              onClose={() => setSelectedId(null)}
-              onOpen={(id) => {
-                const f = allFeatures.find((x) => x.id === id);
-                if (f) openFromList(f, false);
-              }}
-              onBack={fromResults && query.trim() !== "" ? () => setSelectedId(null) : undefined}
-              onDirections={directionsTo}
-            />
-          ) : showResults ? (
-            <section aria-label="Search results">
-              {results.length === 0 ? (
-                <p className={styles.muted}>No features named “{query.trim()}”.</p>
-              ) : (
-                <ul className={styles.results}>
-                  {results.map((f) => (
-                    <li key={f.id}>
-                      <button type="button" className={styles.result} onClick={() => openFromList(f, true)}>
-                        <span
-                          className={styles.resultDot}
-                          style={{ background: featureDotColour(f, railwayColours) }}
-                          aria-hidden="true"
-                        />
-                        <span className={styles.resultText}>
-                          <span className={styles.resultName}>{displayName(f)}</span>
-                          <span className={styles.resultSub}>{featureSubtitle(f, railwayNames)}</span>
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+
+              {mode === "directions" ? (
+                <DirectionsResults
+                  view={routeView}
+                  allFeatures={allFeatures}
+                  highlightLeg={hoverLeg}
+                  pickTarget={pickTarget}
+                  onHoverLeg={setHoverLeg}
+                  onFocusLeg={(i) => {
+                    const leg = shownRoute?.legs[i];
+                    if (leg) setFitRequest((prev) => ({ points: leg.points, nonce: (prev?.nonce ?? 0) + 1 }));
+                  }}
+                  onRetry={() => setRouteRetry((n) => n + 1)}
+                />
+              ) : editMode ? (
+                <>
+                  {query.trim() !== "" && results.length > 0 && (
+                    <ul className={styles.results} aria-label="Search results">
+                      {results.slice(0, 8).map((f) => (
+                        <li key={f.id}>
+                          <button type="button" className={styles.result} onClick={() => openFromList(f, true)}>
+                            <span className={styles.resultDot} style={{ background: featureDotColour(f, railwayColours) }} aria-hidden="true" />
+                            <span className={styles.resultText}>
+                              <span className={styles.resultName}>{displayName(f)}</span>
+                              <span className={styles.resultSub}>{featureSubtitle(f, railwayNames)}</span>
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <EditorPanel
+                    state={editor}
+                    dispatch={dispatch}
+                    allFeatures={allFeatures}
+                    mapHint={mapHint}
+                    discardPrompt={pendingAction !== null}
+                    onConfirmDiscard={() => {
+                      const action = pendingAction;
+                      setPendingAction(null);
+                      dispatch({ type: "close" });
+                      action?.();
+                    }}
+                    onKeepEditing={() => setPendingAction(null)}
+                    onAdd={addFeature}
+                    onSave={() => void save()}
+                    onCancel={() => {
+                      dispatch({ type: "close" });
+                      setMapHint(null);
+                      setSelectedId(null);
+                    }}
+                    onDelete={() => void remove()}
+                    onRedraw={() => {
+                      dispatch({ type: "set_geometry", geometry: [] });
+                      setDrawToken((n) => n + 1);
+                    }}
+                    onReloadLatest={() => void reloadLatest()}
+                  />
+                </>
+              ) : selected ? (
+                <FeatureCard
+                  feature={selected}
+                  allFeatures={allFeatures}
+                  onClose={() => setSelectedId(null)}
+                  onOpen={(id) => {
+                    const f = allFeatures.find((x) => x.id === id);
+                    if (f) openFromList(f, false);
+                  }}
+                  onBack={fromResults && query.trim() !== "" ? () => setSelectedId(null) : undefined}
+                  onDirections={directionsTo}
+                />
+              ) : showResults ? (
+                <section aria-label="Search results">
+                  {results.length === 0 ? (
+                    <p className={styles.muted}>No features named “{query.trim()}”.</p>
+                  ) : (
+                    <ul className={styles.results}>
+                      {results.map((f) => (
+                        <li key={f.id}>
+                          <button type="button" className={styles.result} onClick={() => openFromList(f, true)}>
+                            <span
+                              className={styles.resultDot}
+                              style={{ background: featureDotColour(f, railwayColours) }}
+                              aria-hidden="true"
+                            />
+                            <span className={styles.resultText}>
+                              <span className={styles.resultName}>{displayName(f)}</span>
+                              <span className={styles.resultSub}>{featureSubtitle(f, railwayNames)}</span>
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              ) : null}
+            </div>
+          </section>
+        )}
+      </div>
+
+      {/* Click-away for the two popovers. */}
+      {(accountOpen || worldPickerOpen) && (
+        <button
+          type="button"
+          className={styles.scrim}
+          aria-label="Close menu"
+          onClick={() => {
+            setAccountOpen(false);
+            setWorldPickerOpen(false);
+          }}
+        />
+      )}
+
+      {/* Account, top right, as on Google Maps. */}
+      <div className={styles.topRight}>
+        <button
+          type="button"
+          className={styles.avatarButton}
+          aria-haspopup="dialog"
+          aria-expanded={accountOpen}
+          onClick={() => setAccountOpen((o) => !o)}
+          title={auth?.loggedIn ? auth.name : "Account"}
+          aria-label={auth?.loggedIn ? `Account: ${auth.name}` : "Account"}
+        >
+          {auth?.loggedIn ? (
+            <span className={styles.avatarInitial} style={{ background: playerColour(auth.uuid) }}>
+              {auth.name.slice(0, 1).toUpperCase()}
+            </span>
           ) : (
-            featureLoad.status === "ok" &&
-            !featuresLoading && (
-              <p className={styles.hint}>
-                {allFeatures.length === 0
-                  ? "Nothing has been mapped in this world yet."
-                  : "Click a feature on the map or search by name to see its details."}
-              </p>
-            )
+            <PersonIcon size={22} />
           )}
+        </button>
+        {accountOpen && (
+          <div className={styles.popover} role="dialog" aria-label="Account">
+            {auth?.loggedIn ? (
+              <>
+                <p className={styles.popoverName} title={auth.uuid}>
+                  {auth.name}
+                </p>
+                <p className={styles.muted}>{canEdit ? "Can edit the map" : "View only"}</p>
+                <button
+                  type="button"
+                  className={styles.secondaryButton}
+                  onClick={() => {
+                    setAccountOpen(false);
+                    logout();
+                  }}
+                >
+                  Log out
+                </button>
+              </>
+            ) : (
+              <>
+                <p className={styles.popoverName}>Not signed in</p>
+                <p className={styles.muted}>
+                  Run <code>/mapedit</code> in game to get a login link and edit the map.
+                </p>
+              </>
+            )}
+            {USE_FIXTURES && <p className={styles.footnote}>Fixture data (NEXT_PUBLIC_USE_FIXTURES=1) · no tiles</p>}
+          </div>
+        )}
+      </div>
 
-          <p className={styles.footnote}>
-            {!auth?.loggedIn && "Editors: run /mapedit in game to get a login link. "}
-            {USE_FIXTURES && "Fixture data (NEXT_PUBLIC_USE_FIXTURES=1) · no tiles"}
-          </p>
-        </div>
-      </aside>
+      {/* World picker, bottom left, as Google Maps' basemap card. */}
+      <div className={styles.bottomLeft}>
+        <button
+          type="button"
+          className={styles.worldCard}
+          aria-haspopup="listbox"
+          aria-expanded={worldPickerOpen}
+          onClick={() => setWorldPickerOpen((o) => !o)}
+          disabled={worldList.length === 0}
+        >
+          <span className={styles.worldCardIcon} aria-hidden="true">
+            <LayersIcon size={22} />
+          </span>
+          <span className={styles.worldCardLabel}>{worldLabel}</span>
+        </button>
+        {worldPickerOpen && worldList.length > 0 && (
+          <ul className={styles.worldMenu} role="listbox" aria-label="World">
+            {worldList.map((w) => (
+              <li key={w.id} role="option" aria-selected={w.id === worldId}>
+                <button
+                  type="button"
+                  className={styles.worldOption}
+                  onClick={() => {
+                    setWorldPickerOpen(false);
+                    changeWorld(w.id);
+                  }}
+                >
+                  {w.name && w.name !== w.id ? `${w.name} (${w.id})` : w.id}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Round map controls, bottom right, above Leaflet's zoom buttons. */}
+      <div className={styles.bottomRight}>
+        {canEdit && (
+          <button
+            type="button"
+            className={styles.fab}
+            aria-pressed={editMode}
+            onClick={() => switchMode(editMode ? "explore" : "edit")}
+            title={editMode ? "Leave the editor" : "Edit the map"}
+            aria-label={editMode ? "Leave the editor" : "Edit the map"}
+          >
+            <PencilIcon size={20} />
+          </button>
+        )}
+        <button
+          type="button"
+          className={styles.fab}
+          aria-pressed={playerListOpen}
+          onClick={() => {
+            setPlayerListOpen((o) => !o);
+            setSheetOpen(true);
+          }}
+          title="Players online"
+          aria-label="Players online"
+        >
+          <PeopleIcon size={20} />
+          {showPlayers && livePlayers.length > 0 && <span className={styles.fabBadge}>{livePlayers.length}</span>}
+        </button>
+      </div>
     </div>
   );
 }

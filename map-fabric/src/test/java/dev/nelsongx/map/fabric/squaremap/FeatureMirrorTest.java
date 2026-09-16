@@ -153,6 +153,11 @@ class FeatureMirrorTest {
     }
 
     @Override
+    public boolean hiddenOnMap(java.util.UUID uuid) {
+      return false;
+    }
+
+    @Override
     public void clearMarkers(String worldId) {
       clears++;
       markers.remove(worldId);

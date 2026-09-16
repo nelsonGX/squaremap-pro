@@ -1,6 +1,10 @@
 "use client";
 
-/** Directions mode: from/to inputs (coordinates, feature search, map pick), modes, route summary and legs. */
+/**
+ * Directions mode, split the way Google Maps splits it: {@link DirectionsHeader} is the card at the
+ * top of the screen (from/to fields, swap, travel modes) and {@link DirectionsResults} is the sheet
+ * under it (summary, legs, turn-by-turn steps).
+ */
 import { useState } from "react";
 import type { Feature, RouteMode, RouteResponse, XZ } from "../lib/api/types";
 import { searchFeatures } from "../lib/features/search";
@@ -8,6 +12,7 @@ import { displayName, featureSubtitle } from "../lib/features/styles";
 import { parseCoordInput } from "../lib/navigation/coords";
 import { formatBlocks, formatClock } from "../lib/navigation/format";
 import { legLineStyle, legView, routeStatusMessage, routeSummary, type NavModes } from "../lib/navigation/legs";
+import { BackIcon, PinIcon, SwapIcon } from "./icons";
 import styles from "./ViewerApp.module.css";
 
 export type Which = "from" | "to";
@@ -24,20 +29,27 @@ export type RouteView =
   | { kind: "error"; message: string }
   | { kind: "result"; route: RouteResponse };
 
-export interface DirectionsPanelProps {
+export interface DirectionsHeaderProps {
   texts: Record<Which, string>;
   endpoints: Record<Which, Endpoint | null>;
   pickTarget: Which | null;
   modes: NavModes;
-  view: RouteView;
   allFeatures: readonly Feature[];
   railwayNames: ReadonlyMap<string, string>;
-  highlightLeg: number | null;
   onText: (which: Which, text: string) => void;
   onPickFeature: (which: Which, feature: Feature) => void;
   onPickTarget: (which: Which | null) => void;
   onSwap: () => void;
   onModes: (modes: NavModes) => void;
+  /** Leaves directions mode (back arrow). */
+  onClose: () => void;
+}
+
+export interface DirectionsResultsProps {
+  view: RouteView;
+  allFeatures: readonly Feature[];
+  highlightLeg: number | null;
+  pickTarget: Which | null;
   onHoverLeg: (index: number | null) => void;
   onFocusLeg: (index: number) => void;
   onRetry: () => void;
@@ -68,18 +80,9 @@ function ModeIcon({ mode, colour }: { mode: RouteMode; colour: string }) {
   }
 }
 
-export default function DirectionsPanel(props: DirectionsPanelProps) {
-  const { texts, endpoints, pickTarget, modes, view, allFeatures, railwayNames, highlightLeg } = props;
+export function DirectionsHeader(props: DirectionsHeaderProps) {
+  const { texts, endpoints, pickTarget, modes, allFeatures, railwayNames } = props;
   const [focused, setFocused] = useState<Which | null>(null);
-  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
-  const [expandedFor, setExpandedFor] = useState<RouteResponse | null>(null);
-
-  // Collapse step lists when a new route arrives (state derived during render, no effect).
-  const currentRoute = view.kind === "result" ? view.route : null;
-  if (currentRoute !== expandedFor) {
-    setExpandedFor(currentRoute);
-    setExpanded(new Set());
-  }
 
   const suggestions = (which: Which): Feature[] => {
     const t = texts[which];
@@ -91,17 +94,14 @@ export default function DirectionsPanel(props: DirectionsPanelProps) {
     const label = which === "from" ? "Start" : "Destination";
     const results = suggestions(which);
     const invalid = texts[which].trim() !== "" && !endpoints[which] && results.length === 0 && focused !== which;
-    const id = `nav-${which}`;
     return (
       <div className={styles.navField}>
-        <span className={`${styles.navDot} ${which === "from" ? styles.navDotFrom : styles.navDotTo}`} aria-hidden="true">
-          {which === "from" ? "A" : "B"}
-        </span>
+        <span className={`${styles.navDot} ${which === "from" ? styles.navDotFrom : styles.navDotTo}`} aria-hidden="true" />
         <div className={styles.navInputWrap}>
           <input
-            id={id}
+            id={`nav-${which}`}
             className={styles.navInput}
-            placeholder={`${label}: "x, z", a place name, or pick on map`}
+            placeholder={which === "from" ? "Choose starting point" : "Choose destination"}
             aria-label={label}
             value={texts[which]}
             onChange={(e) => props.onText(which, e.target.value)}
@@ -144,56 +144,94 @@ export default function DirectionsPanel(props: DirectionsPanelProps) {
         </div>
         <button
           type="button"
-          className={styles.iconButton}
+          className={styles.navPick}
           aria-pressed={pickTarget === which}
           title={`Pick ${label.toLowerCase()} on the map`}
           aria-label={`Pick ${label.toLowerCase()} on the map`}
           onClick={() => props.onPickTarget(pickTarget === which ? null : which)}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            <circle cx="12" cy="12" r="7" />
-            <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
-          </svg>
+          <PinIcon size={18} />
         </button>
       </div>
     );
   };
 
-  const route = currentRoute;
-  const statusMessage = route ? routeStatusMessage(route) : null;
-
   return (
-    <section className={styles.directions} aria-label="Directions">
-      <div className={styles.navFields}>
+    <section className={styles.directionsCard} aria-label="Directions">
+      <div className={styles.directionsHead}>
+        <button
+          type="button"
+          className={styles.navIconButton}
+          onClick={props.onClose}
+          aria-label="Close directions"
+          title="Close directions"
+        >
+          <BackIcon size={20} />
+        </button>
         <div className={styles.navFieldStack}>
           {field("from")}
           {field("to")}
         </div>
-        <button type="button" className={styles.iconButton} onClick={props.onSwap} aria-label="Swap start and destination" title="Swap">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-            <path d="M7 4v16M7 4 3 8M7 4l4 4M17 20V4M17 20l-4-4M17 20l4-4" />
-          </svg>
+        <button
+          type="button"
+          className={styles.navIconButton}
+          onClick={props.onSwap}
+          aria-label="Swap start and destination"
+          title="Swap"
+        >
+          <SwapIcon size={20} />
         </button>
       </div>
 
-      {pickTarget && (
-        <p className={styles.hint} role="status">
-          Click the map to set the {pickTarget === "from" ? "start" : "destination"}.
-        </p>
-      )}
-
-      <div className={styles.chips} role="group" aria-label="Travel modes">
-        <button type="button" className={styles.chip} aria-pressed={modes.road} onClick={() => props.onModes({ ...modes, road: !modes.road })}>
-          <ModeIcon mode="road" colour="#1a73e8" /> Roads
+      <div className={styles.modeBar} role="group" aria-label="Travel modes">
+        <span className={styles.modeFixed} title="Walking legs are always included">
+          <ModeIcon mode="walk" colour="currentColor" /> Walk
+        </span>
+        <button
+          type="button"
+          className={styles.modeButton}
+          aria-pressed={modes.road}
+          onClick={() => props.onModes({ ...modes, road: !modes.road })}
+        >
+          <ModeIcon mode="road" colour="currentColor" /> Roads
         </button>
-        <button type="button" className={styles.chip} aria-pressed={modes.rail} onClick={() => props.onModes({ ...modes, rail: !modes.rail })}>
-          <ModeIcon mode="rail" colour="#7b1fa2" /> Railways
+        <button
+          type="button"
+          className={styles.modeButton}
+          aria-pressed={modes.rail}
+          onClick={() => props.onModes({ ...modes, rail: !modes.rail })}
+        >
+          <ModeIcon mode="rail" colour="currentColor" /> Rail
         </button>
-        <span className={styles.muted}>Walking always included</span>
       </div>
+    </section>
+  );
+}
 
+export function DirectionsResults(props: DirectionsResultsProps) {
+  const { view, allFeatures, highlightLeg, pickTarget } = props;
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
+  const [expandedFor, setExpandedFor] = useState<RouteResponse | null>(null);
+
+  // Collapse step lists when a new route arrives (state derived during render, no effect).
+  const route = view.kind === "result" ? view.route : null;
+  if (route !== expandedFor) {
+    setExpandedFor(route);
+    setExpanded(new Set());
+  }
+
+  const statusMessage = route ? routeStatusMessage(route) : null;
+
+  return (
+    <section className={styles.directions} aria-label="Route">
       <div aria-live="polite">
-        {view.kind === "idle" && <p className={styles.hint}>Choose a start and a destination.</p>}
+        {view.kind === "idle" && (
+          <p className={styles.hint}>
+            {pickTarget
+              ? `Click the map to set the ${pickTarget === "from" ? "start" : "destination"}.`
+              : "Choose a start and a destination."}
+          </p>
+        )}
         {view.kind === "loading" && <p className={styles.muted}>Finding a route…</p>}
         {view.kind === "error" && (
           <div className={styles.error} role="alert">

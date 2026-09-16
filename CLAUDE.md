@@ -92,6 +92,16 @@ block centre (`x + 0.5`, `z + 0.5`) and convert to Leaflet with squaremap's CRS.
 - `GET /api/auth/me` → `{ "loggedIn": true, "uuid": "…", "name": "Steve", "canEdit": true }` or `{ "loggedIn": false }`.
 - `POST /api/auth/logout` → 204.
 
+### Players (live layer)
+- `GET /api/players[?world=<id>]` (public) →
+  `{ "players": [ { "uuid": "…", "name": "Steve", "world": "minecraft:overworld", "x": 12, "y": 64, "z": -40, "yaw": 90 } ], "max": 20 }`
+
+  Positions are snapshotted on the server thread every 10 ticks and served from memory (handlers never
+  touch the level). Visibility follows squaremap v1.3.12 `UpdatePlayers`: spectators, invisible players
+  and players hidden through squaremap's `PlayerManager` are left out. `yaw` is Minecraft head yaw
+  (0 = +z, clockwise), normalised to 0..359. squaremap's own `tiles/players.json` is **not** used: it
+  only reaches disk when `settings.internal-webserver.flush-json-immediately` is on.
+
 ### Features v1
 - `GET /api/worlds` → `[{ "id": "minecraft:overworld", "name": "world" }]`
 - `GET /api/worlds/{world}/features` → `{ "schemaVersion": 1, "features": [Feature…] }` (public)

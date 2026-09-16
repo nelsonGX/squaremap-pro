@@ -15,6 +15,8 @@ import dev.nelsongx.map.fabric.auth.CachedPermissionChecker;
 import dev.nelsongx.map.fabric.auth.Session;
 import dev.nelsongx.map.fabric.auth.SessionStore;
 import dev.nelsongx.map.fabric.http.HttpConfig;
+import dev.nelsongx.map.fabric.player.PlayerPosition;
+import dev.nelsongx.map.fabric.player.PlayerSnapshot;
 import dev.nelsongx.map.fabric.world.WorldDirectory;
 import java.util.List;
 import java.util.Objects;
@@ -77,6 +79,38 @@ public final class ApiHandlers {
       arr.add(o);
     }
     return Reply.json(200, arr);
+  }
+
+  // ---- players -------------------------------------------------------------------------------
+
+  /**
+   * {@code GET /api/players[?world=]} (public): the live player layer. Reads the snapshot the server
+   * thread publishes every few ticks, so it never touches the level and never blocks.
+   *
+   * @param world world id to filter by, or null for every world
+   * @return {@code {"players": [...], "max": n}}
+   */
+  public Reply players(String world) {
+    PlayerSnapshot snapshot = services.players().players();
+    JsonArray arr = new JsonArray();
+    for (PlayerPosition p : snapshot.players()) {
+      if (world != null && !world.isEmpty() && !p.world().equals(world)) {
+        continue;
+      }
+      JsonObject o = new JsonObject();
+      o.addProperty("uuid", p.uuid());
+      o.addProperty("name", p.name());
+      o.addProperty("world", p.world());
+      o.addProperty("x", p.x());
+      o.addProperty("y", p.y());
+      o.addProperty("z", p.z());
+      o.addProperty("yaw", p.yaw());
+      arr.add(o);
+    }
+    JsonObject out = new JsonObject();
+    out.add("players", arr);
+    out.addProperty("max", snapshot.max());
+    return Reply.json(200, out);
   }
 
   // ---- auth ------------------------------------------------------------------------------------

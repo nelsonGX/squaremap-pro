@@ -13,6 +13,8 @@ import {
   type AuthMe,
   type Feature,
   type FeatureList,
+  type OnlinePlayer,
+  type PlayerList,
   type PlayerRef,
   type RouteLeg,
   type RouteResponse,
@@ -61,6 +63,21 @@ export function parseAuthMe(v: unknown): Parsed<AuthMe> {
     return fail("auth/me loggedIn without uuid/name/canEdit");
   }
   return ok({ loggedIn: true, uuid: v.uuid, name: v.name, canEdit: v.canEdit });
+}
+
+/**
+ * Validates `GET /api/players`. A malformed entry is dropped rather than failing the whole
+ * response: the player layer is decoration and must never break the map.
+ */
+export function parsePlayerList(v: unknown): Parsed<PlayerList> {
+  if (!isObj(v) || !Array.isArray(v.players)) return fail("players is not {players: []}");
+  const out: OnlinePlayer[] = [];
+  for (const p of v.players) {
+    if (!isObj(p) || !isStr(p.uuid) || p.uuid === "" || !isStr(p.name) || !isStr(p.world)) continue;
+    if (!isInt(p.x) || !isInt(p.y) || !isInt(p.z) || !isInt(p.yaw)) continue;
+    out.push({ uuid: p.uuid, name: p.name, world: p.world, x: p.x, y: p.y, z: p.z, yaw: p.yaw });
+  }
+  return ok({ players: out, max: isInt(v.max) && v.max >= 0 ? v.max : 0 });
 }
 
 function parsePlayer(v: unknown): PlayerRef | null {
